@@ -323,7 +323,6 @@ button:disabled {
 }
 
 .elapsed-time {
-    font-family: 'Monaco', 'Courier New', monospace;
     color: var(--text-secondary);
 }
 

@@ -225,6 +225,31 @@ function startServer() {
     }
   });
 
+  app.post('/api/repos/:repo/retry', async (req, res) => {
+    const repoName = req.params.repo;
+    try {
+      const repo = state.getRepo(repoName);
+      if (!repo) {
+        return res.status(404).json({ success: false, error: `Repository ${repoName} not found` });
+      }
+      
+      // Immediately set status to unsynced
+      state.setStatus(repoName, 'unsynced');
+      broadcastStateUpdate();
+      
+      // Queue the specific repo directly
+      const { queueSingleRepo } = await import('./workers/migrationWorker');
+      console.log(`[${new Date().toISOString()}] Retry: Queueing ${repoName}...`);
+      await queueSingleRepo(config, repoName, repo.visibility);
+      
+      console.log(`[${new Date().toISOString()}] Retry successfully queued ${repoName}`);
+      broadcastStateUpdate();
+      res.json({ success: true, message: `Retry queued for ${repoName}` });
+    } catch (error) {
+      res.status(500).json({ success: false, error: String(error) });
+    }
+  });
+
   // Server-Sent Events endpoint
   app.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');

@@ -1,6 +1,8 @@
 import { Config } from '../config';
 import * as state from '../state';
 import { runGh, extractMigrationId } from '../github';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const MAX_CONCURRENT_QUEUED = 10;
 
@@ -45,7 +47,7 @@ export async function queueNextRepo(config: Config, onRepoStart?: (repoName: str
   return unsyncedRepo.name;
 }
 
-async function queueSingleRepo(config: Config, repoName: string, visibility: state.RepoVisibility): Promise<void> {
+export async function queueSingleRepo(config: Config, repoName: string, visibility: state.RepoVisibility): Promise<void> {
   try {
     const args = [
       'gei', 'migrate-repo',
@@ -73,17 +75,41 @@ async function queueSingleRepo(config: Config, repoName: string, visibility: sta
     console.log(`[${new Date().toISOString()}] Queueing ${repoName}...`);
     const result = await runGh(args);
 
+    // Clean up octopath log files that gh gei might create
+    await cleanupOctopathLogs();
+
     if (result.code !== 0) {
       console.error(`[${new Date().toISOString()}] Failed to queue ${repoName}: ${result.stderr}`);
       state.setStatus(repoName, 'failed', result.stderr);
       return;
     }
 
+    // Check for "already contains" error in stdout or stderr
+    const combinedOutput = result.stdout + result.stderr;
+    if (combinedOutput.includes('already contains a repository with the name')) {
+      console.log(`[${new Date().toISOString()}] Target repo exists for ${repoName}, deleting and retrying...`);
+      
+      // Try to delete the target repository
+      const deleteSuccess = await deleteTargetRepository(config, repoName);
+      if (deleteSuccess) {
+        // Retry the migration after deletion
+        console.log(`[${new Date().toISOString()}] Retrying migration for ${repoName} after deletion...`);
+        await queueSingleRepo(config, repoName, visibility);
+        return;
+      } else {
+        const errorMsg = `Failed to delete existing target repository. Original error: ${result.stdout}`;
+        console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+        state.setStatus(repoName, 'failed', errorMsg);
+        return;
+      }
+    }
+    
     const migrationId = extractMigrationId(result.stdout);
     
     if (!migrationId) {
       console.error(`[${new Date().toISOString()}] Could not extract migration ID for ${repoName}`);
-      state.setStatus(repoName, 'failed', 'Could not extract migration ID from output');
+      const errorMsg = `Could not extract migration ID from output\n${result.stdout}`;
+      state.setStatus(repoName, 'failed', errorMsg);
       return;
     }
 
@@ -92,12 +118,65 @@ async function queueSingleRepo(config: Config, repoName: string, visibility: sta
       migrationId,
       status: 'queued',
       queuedAt: now,
-      startedAt: now
+      startedAt: now,
+      elapsedSeconds: 0  // Reset elapsed time when entering queued state
     });
 
     console.log(`[${new Date().toISOString()}] Queued ${repoName} with migration ID: ${migrationId}`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error queueing ${repoName}:`, error);
     state.setStatus(repoName, 'failed', String(error));
+  }
+}
+
+async function deleteTargetRepository(config: Config, repoName: string): Promise<boolean> {
+  try {
+    console.log(`[${new Date().toISOString()}] Deleting target repository ${config.target.org}/${repoName}...`);
+    
+    const apiUrl = config.target.hostLabel === 'github.com'
+      ? `https://api.github.com/repos/${config.target.org}/${repoName}`
+      : `https://${config.target.hostLabel}/api/v3/repos/${config.target.org}/${repoName}`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${config.target.token}`,
+        'Accept': 'application/vnd.github+json',
+      }
+    });
+    
+    if (response.ok || response.status === 204) {
+      console.log(`[${new Date().toISOString()}] Successfully deleted ${repoName} from target`);
+      return true;
+    } else {
+      const errorText = await response.text();
+      console.error(`[${new Date().toISOString()}] Failed to delete ${repoName}: HTTP ${response.status} ${response.statusText}`);
+      console.error(`Response: ${errorText}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error deleting repository:`, error);
+    return false;
+  }
+}
+
+async function cleanupOctopathLogs(): Promise<void> {
+  try {
+    const cwd = process.cwd();
+    const files = fs.readdirSync(cwd);
+    const octopathLogs = files.filter(file => file.includes('octoshift') && file.endsWith('.log'));
+    
+    for (const file of octopathLogs) {
+      const filePath = path.join(cwd, file);
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`[${new Date().toISOString()}] Cleaned up octopath log: ${file}`);
+      } catch (err) {
+        console.warn(`[${new Date().toISOString()}] Failed to clean up ${file}:`, err);
+      }
+    }
+  } catch (error) {
+    // Silently ignore errors during cleanup
+    console.warn(`[${new Date().toISOString()}] Error during octopath log cleanup:`, error);
   }
 }

@@ -117,16 +117,36 @@ function renderTable(repos) {
         const lastChecked = repo.lastChecked ? formatTimestamp(repo.lastChecked) : '-';
         const lastPushed = repo.lastPushed ? formatTimestamp(repo.lastPushed, true) : '-';
         
+        // Only show elapsed time for repos that are currently migrating (not failed or unsynced)
+        const showElapsedTime = repo.status !== 'failed' && repo.status !== 'unsynced';
+        const elapsedDisplay = showElapsedTime ? elapsed : '-';
+        
+        // Reset elapsed time if repo just entered queued state (startedAt is set)
+        if (repo.status === 'queued' && repo.startedAt && !repo.elapsedSeconds) {
+          repo.startedAt = new Date().toISOString();
+        }
+        
+        // Add title attribute with error message for failed repos
+        const titleAttr = repo.status === 'failed' && repo.errorMessage ? ` title="${escapeHtml(repo.errorMessage)}"` : '';
+        
         return `
-            <tr>
+            <tr${titleAttr}>
                 <td><strong>${escapeHtml(repo.name)}</strong></td>
                 <td><span class="status-badge ${statusClass}">${getStatusLabel(repo.status)}</span></td>
                 <td class="timestamp">${lastUpdate}</td>
                 <td class="timestamp">${lastChecked}</td>
                 <td class="timestamp">${lastPushed}</td>
-                <td class="elapsed-time" data-repo="${escapeHtml(repo.name)}">${elapsed}</td>
+                <td class="elapsed-time" data-repo="${escapeHtml(repo.name)}">${elapsedDisplay}</td>
                 <td>
-                    ${(repo.logs && repo.logs.cached) || (repo.status === 'synced' && repo.migrationId) ? `
+                    ${repo.status === 'failed' ? `
+                        <button onclick="retryRepo('${escapeHtml(repo.name)}')">Retry</button>
+                        ${repo.errorMessage ? `
+                            <button onclick="viewError('${escapeHtml(repo.name)}')">Errors</button>
+                        ` : ''}
+                        ${(repo.logs && repo.logs.cached) || repo.migrationId ? `
+                            <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
+                        ` : ''}
+                    ` : repo.status === 'synced' && ((repo.logs && repo.logs.cached) || repo.migrationId) ? `
                         <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
                     ` : ''}
                 </td>
@@ -185,6 +205,49 @@ function startElapsedTimer() {
             }
         });
     }, 1000);
+}
+
+async function retryRepo(repoName) {
+    try {
+        const response = await fetch(`/api/repos/${encodeURIComponent(repoName)}/retry`, { method: 'POST' });
+        if (!response.ok) {
+            alert(`Error: ${response.statusText}`);
+            return;
+        }
+        const result = await response.json();
+        if (result.success) {
+            // Reload state to show updated status
+            await loadState();
+        } else {
+            alert(`Error: ${result.error || 'Failed to retry repo'}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+async function viewError(repoName) {
+    const modal = document.getElementById('logs-modal');
+    const title = document.getElementById('modal-title');
+    const content = document.getElementById('logs-content');
+
+    title.textContent = `Error Details - ${repoName}`;
+    content.textContent = 'Loading error details...';
+    modal.classList.add('show');
+
+    try {
+        const response = await fetch(`/api/state`);
+        const state = await response.json();
+        const repo = state.repos[repoName];
+        
+        if (repo && repo.errorMessage) {
+            content.textContent = repo.errorMessage;
+        } else {
+            content.textContent = 'No error message available';
+        }
+    } catch (error) {
+        content.textContent = `Error: ${error.message}`;
+    }
 }
 
 async function viewLogs(repoName) {

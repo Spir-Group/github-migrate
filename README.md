@@ -12,8 +12,10 @@ A TypeScript-based web dashboard for managing GitHub Enterprise Importer (GEI) m
 - **Sortable Columns**: Click column headers to sort by name, status, last checked, or last change
 - **Time Tracking**: Shows elapsed time for active migrations and timestamps for checks and changes
 - **Persistent State**: Progress saved in local JSON file - resume anytime
-- **Migration Logs**: Click any repository to view detailed migration logs
+- **Migration Logs**: View detailed migration logs with automatic log discovery for synced repos
+- **Error Handling**: Retry failed migrations with automatic target repository deletion
 - **Statistics**: Overview of unsynced, queued, syncing, synced, and failed repositories
+- **Enhanced UI**: Error tooltips, log/error buttons, and improved status indicators
 
 ## Prerequisites
 
@@ -104,9 +106,12 @@ The application uses four independent components:
    - Shows currently checking repository in real-time
    
 3. **Migration Worker** (Background Thread):
-   - Queues migrations for unsynced repositories using `gh gei migrate-repo`
-   - Queues all available unsynced repos in each run
+   - Queues migrations for unsynced repositories using `gh gei migrate-repo --queue-only`
+   - Enforces max 10 concurrent queued repos to prevent overwhelming GitHub API
+   - Automatically pauses queueing when limit reached, resumes after 30 seconds
+   - Queues all available unsynced repos in each run (subject to concurrency limit)
    - Checks every 30 seconds for new unsynced repos
+   - Automatically deletes target repository if "already contains" error occurs
    - Can be started/stopped via the dashboard UI
    - Shows currently queueing repository in real-time
    
@@ -215,10 +220,13 @@ Sortable columns (click headers):
 - **Last Status Change**: When the status last changed (default sort, newest first)
 - **Last Checked**: When the sync status was last verified
 - **Last Commit**: When repository was last pushed to (yyyy-mm-dd format)
-- **Migration Time**: Time spent on migration (starts when syncing, stops when completed)
-- **Actions**: View detailed migration logs
+- **Duration**: Time spent on migration (starts when queued, stops when completed)
+- **Actions**: Buttons for managing repository migrations
 
-Click "Show Logs" to see detailed migration logs. The button only appears for repositories that have completed migrations with downloaded logs.
+**Action Buttons**:
+- **Retry** (Failed repos): Retry a failed migration. Automatically deletes the target repository if it was partially created.
+- **Errors** (Failed repos): View detailed error message for a failed migration
+- **Logs** (Synced/Failed repos): View detailed migration logs. For synced repos, shows cached logs or attempts to find them. For failed repos, shows available error logs.
 
 ## API Endpoints
 
@@ -226,6 +234,8 @@ Click "Show Logs" to see detailed migration logs. The button only appears for re
 - `GET /`: Dashboard HTML
 - `GET /api/state`: Current migration state (JSON)
 - `GET /api/logs/:repo`: Migration logs for a specific repository
+- `POST /api/repos/:repo/retry`: Retry a failed migration (deletes target repo if needed)
+- `POST /api/logs/:repo/download`: Attempt to download and find logs for a synced repository
 - `GET /events`: Server-Sent Events stream for real-time updates
 
 ### Status Worker
