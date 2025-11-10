@@ -2,7 +2,7 @@ let state = null;
 let eventSource = null;
 let sortColumn = 'lastUpdate';
 let sortDirection = 'desc';
-let activeFilters = new Set(['needs_migration', 'queued', 'exporting', 'exported', 'importing', 'synced', 'imported', 'failed', 'unknown']);
+let activeFilters = new Set(['unknown', 'unsynced', 'queued', 'syncing', 'synced', 'failed']);
 let repoNameFilter = '';
 let statusWorkerInfo = { running: false, currentRepo: null };
 let migrationWorkerInfo = { running: false, inProgress: 0, maxConcurrent: 10 };
@@ -69,10 +69,10 @@ function renderState() {
     const repos = Object.values(state.repos);
     const stats = {
         total: repos.length,
-        unsynced: repos.filter(r => r.status === 'needs_migration').length,
+        unsynced: repos.filter(r => r.status === 'unsynced').length,
         queued: repos.filter(r => r.status === 'queued').length,
-        progress: repos.filter(r => ['exporting', 'exported', 'importing'].includes(r.status)).length,
-        synced: repos.filter(r => r.status === 'synced' || r.status === 'imported').length,
+        syncing: repos.filter(r => r.status === 'syncing').length,
+        synced: repos.filter(r => r.status === 'synced').length,
         failed: repos.filter(r => r.status === 'failed').length,
         unknown: repos.filter(r => r.status === 'unknown').length
     };
@@ -81,7 +81,7 @@ function renderState() {
     document.getElementById('stat-total').textContent = stats.total;
     document.getElementById('stat-unsynced').textContent = stats.unsynced;
     document.getElementById('stat-queued').textContent = stats.queued;
-    document.getElementById('stat-progress').textContent = stats.progress;
+    document.getElementById('stat-syncing').textContent = stats.syncing;
     document.getElementById('stat-synced').textContent = stats.synced;
     document.getElementById('stat-failed').textContent = stats.failed;
     document.getElementById('stat-unknown').textContent = stats.unknown;
@@ -126,11 +126,11 @@ function renderTable(repos) {
                 <td class="timestamp">${lastPushed}</td>
                 <td class="elapsed-time" data-repo="${escapeHtml(repo.name)}">${elapsed}</td>
                 <td>
-                    <button onclick="showLogs('${escapeHtml(repo.name)}')" 
-                            ${!repo.migrationId ? 'disabled' : ''}>
-                        View Logs
-                    </button>
-                    ${repo.errorMessage ? `<br><small style="color: #d73a49;">${escapeHtml(repo.errorMessage.substring(0, 50))}...</small>` : ''}
+                    ${repo.logs && repo.logs.cached ? `
+                        <button onclick="showLogs('${escapeHtml(repo.name)}')">
+                            Show Logs
+                        </button>
+                    ` : ''}
                 </td>
             </tr>
         `;
@@ -357,30 +357,8 @@ function filterByStatBox(filterType) {
     
     if (filterType === 'all') {
         // Show all statuses
-        activeFilters = new Set(['needs_migration', 'queued', 'exporting', 'exported', 'importing', 'synced', 'imported', 'failed', 'unknown']);
+        activeFilters = new Set(['unknown', 'unsynced', 'queued', 'syncing', 'synced', 'failed']);
         filterPills.forEach(pill => pill.classList.add('active'));
-    } else if (filterType === 'progress') {
-        // In Progress = exporting, exported, importing
-        activeFilters = new Set(['exporting', 'exported', 'importing']);
-        filterPills.forEach(pill => {
-            const status = pill.getAttribute('data-status');
-            if (status === 'exporting') {
-                pill.classList.add('active');
-            } else {
-                pill.classList.remove('active');
-            }
-        });
-    } else if (filterType === 'synced') {
-        // Synced = synced + imported
-        activeFilters = new Set(['synced', 'imported']);
-        filterPills.forEach(pill => {
-            const status = pill.getAttribute('data-status');
-            if (status === 'synced') {
-                pill.classList.add('active');
-            } else {
-                pill.classList.remove('active');
-            }
-        });
     } else {
         // Single status filter
         activeFilters = new Set([filterType]);
@@ -402,15 +380,12 @@ function filterByStatBox(filterType) {
 
 function getStatusLabel(status) {
     const labels = {
-        'needs_migration': 'UNSYNCED',
+        'unknown': 'UNKNOWN',
+        'unsynced': 'UNSYNCED',
         'queued': 'QUEUED',
-        'exporting': 'IN PROGRESS',
-        'exported': 'IN PROGRESS',
-        'importing': 'IN PROGRESS',
+        'syncing': 'SYNCING',
         'synced': 'SYNCED',
-        'imported': 'SYNCED',
-        'failed': 'FAILED',
-        'unknown': 'UNKNOWN'
+        'failed': 'FAILED'
     };
     return labels[status] || status.toUpperCase();
 }
@@ -493,7 +468,11 @@ function updateMigrationWorkerUI() {
         buttonEl.textContent = 'Stop';
         buttonEl.disabled = false;
         
-        statusEl.textContent = `Running (${migrationWorkerInfo.inProgress}/${migrationWorkerInfo.maxConcurrent})`;
+        if (migrationWorkerInfo.currentRepo) {
+            statusEl.textContent = migrationWorkerInfo.currentRepo;
+        } else {
+            statusEl.textContent = 'Running (idle)';
+        }
     } else {
         control.classList.remove('running');
         control.classList.add('stopped');

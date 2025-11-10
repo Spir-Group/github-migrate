@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export type MigrationStatus = 'queued' | 'exporting' | 'exported' | 'importing' | 'imported' | 'failed' | 'unknown' | 'synced' | 'needs_migration';
+export type MigrationStatus = 'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed';
 export type RepoVisibility = 'public' | 'private' | 'internal';
 
 export interface RepoState {
@@ -117,26 +117,25 @@ export function setStatus(repoName: string, status: MigrationStatus, errorMessag
     repo.errorMessage = errorMessage;
   }
   
-  // Track timing
-  if (status !== 'queued' && !repo.startedAt) {
+  // Track timing - start when entering syncing state
+  if (status === 'syncing' && !repo.startedAt) {
     repo.startedAt = now;
   }
   
-  if (status === 'imported' || status === 'failed') {
-    if (!repo.endedAt) {
-      repo.endedAt = now;
-      if (repo.startedAt) {
-        const start = new Date(repo.startedAt).getTime();
-        const end = new Date(repo.endedAt).getTime();
-        repo.elapsedSeconds = Math.round((end - start) / 1000);
-      }
+  // Stop timer when migration completes (success or failure)
+  if ((status === 'synced' || status === 'failed') && !repo.endedAt) {
+    repo.endedAt = now;
+    if (repo.startedAt) {
+      const start = new Date(repo.startedAt).getTime();
+      const end = new Date(repo.endedAt).getTime();
+      repo.elapsedSeconds = Math.round((end - start) / 1000);
     }
   }
 }
 
 export function listIncomplete(): RepoState[] {
   return Object.values(currentState.repos).filter(
-    repo => ['queued', 'exporting', 'exported', 'importing'].includes(repo.status)
+    repo => ['queued', 'syncing'].includes(repo.status)
   );
 }
 

@@ -1,13 +1,24 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as https from 'https';
+import * as http from 'http';
 import { Config } from './config';
-import { runGh } from './github';
+import { getMigrationLogUrl } from './github';
+import * as state from './state';
 
-const LOGS_DIR = path.join(process.cwd(), 'logs');
+const DATA_DIR = path.join(process.cwd(), 'data');
 const TMP_DIR = path.join(process.cwd(), 'tmp');
 
+function getLogFilePath(config: Config, repoName: string): string {
+  return path.join(DATA_DIR, `${config.target.enterprise}.${config.target.org}.${repoName}.log`);
+}
+
+export function hasLogs(config: Config, repoName: string): boolean {
+  return fs.existsSync(getLogFilePath(config, repoName));
+}
+
 export async function getRepoLogs(config: Config, repoName: string): Promise<string> {
-  const logFile = path.join(LOGS_DIR, `${repoName}.log`);
+  const logFile = getLogFilePath(config, repoName);
 
   // Check if we have cached logs
   if (fs.existsSync(logFile)) {
@@ -15,51 +26,53 @@ export async function getRepoLogs(config: Config, repoName: string): Promise<str
   }
 
   // Download fresh logs
+  return await downloadLogs(config, repoName);
+}
+
+export async function downloadLogs(config: Config, repoName: string): Promise<string> {
+  const logFile = getLogFilePath(config, repoName);
+  
   try {
     console.log(`[${new Date().toISOString()}] Downloading logs for ${repoName}...`);
     
     // Ensure directories exist
-    if (!fs.existsSync(LOGS_DIR)) {
-      fs.mkdirSync(LOGS_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(TMP_DIR)) {
-      fs.mkdirSync(TMP_DIR, { recursive: true });
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
-    const args = [
-      'gei', 'download-logs',
-      '--github-target-org', config.target.org,
-      '--target-repo', repoName,
-      '--github-target-pat', config.target.token
-    ];
-
-    if (config.target.hostLabel !== 'github.com') {
-      args.push('--target-api-url', config.target.restBase);
-    }
-
-    const result = await runGh(args);
-
-    if (result.code !== 0) {
-      const errorMsg = `Failed to download logs: ${result.stderr}`;
+    // Get the repo to find its migration ID
+    const repo = state.getRepo(repoName);
+    if (!repo || !repo.migrationId) {
+      const errorMsg = 'No migration ID found for this repository';
       console.error(`[${new Date().toISOString()}] ${errorMsg}`);
       return errorMsg;
     }
 
-    // The output should contain the log content or tell us where it was saved
-    let logContent = result.stdout;
-
-    // If logs were downloaded to a file, read it
-    const downloadedLog = findDownloadedLog(repoName);
-    if (downloadedLog) {
-      logContent = fs.readFileSync(downloadedLog, 'utf8');
-      // Clean up the downloaded file
-      fs.unlinkSync(downloadedLog);
+    // Get the log URL from the API
+    const logUrl = await getMigrationLogUrl(config.target, repo.migrationId);
+    
+    if (!logUrl) {
+      const errorMsg = 'Migration log URL not available';
+      console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+      return errorMsg;
     }
 
-    // Cache the logs
-    fs.writeFileSync(logFile, logContent, 'utf8');
+    // Download the log file from the URL
+    const logContent = await downloadFromUrl(logUrl);
 
-    console.log(`[${new Date().toISOString()}] Logs for ${repoName} downloaded and cached`);
+    // Save the logs
+    fs.writeFileSync(logFile, logContent, 'utf8');
+    
+    // Mark logs as available in state
+    state.upsertRepo(repoName, {
+      logs: {
+        cached: true,
+        lastFetchedAt: new Date().toISOString()
+      }
+    });
+    await state.saveState();
+
+    console.log(`[${new Date().toISOString()}] Logs for ${repoName} downloaded and saved`);
     return logContent;
   } catch (error) {
     const errorMsg = `Error downloading logs: ${String(error)}`;
@@ -68,16 +81,21 @@ export async function getRepoLogs(config: Config, repoName: string): Promise<str
   }
 }
 
-function findDownloadedLog(repoName: string): string | null {
-  // gh gei download-logs typically creates a file like migration-log-ORG-REPO-ID.log
-  const cwd = process.cwd();
-  const files = fs.readdirSync(cwd);
-
-  for (const file of files) {
-    if (file.startsWith('migration-log-') && file.includes(repoName) && file.endsWith('.log')) {
-      return path.join(cwd, file);
-    }
-  }
-
-  return null;
+function downloadFromUrl(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+    
+    client.get(url, (res) => {
+      if (res.statusCode !== 200) {
+        reject(new Error(`HTTP ${res.statusCode}`));
+        return;
+      }
+      
+      let data = '';
+      res.on('data', (chunk) => data += chunk);
+      res.on('end', () => resolve(data));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
 }
+

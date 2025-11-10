@@ -41,9 +41,9 @@ let heartbeatInterval: NodeJS.Timeout | null = null;
 let statusWorkerRunning = false;
 let statusWorkerCurrentRepo: string | null = null;
 let migrationWorkerRunning = false;
+let migrationWorkerCurrentRepo: string | null = null;
 let progressWorkerRunning = false;
 let progressWorkerCurrentRepo: string | null = null;
-const MAX_CONCURRENT_MIGRATIONS = 10;
 
 async function main() {
   console.log(`[${new Date().toISOString()}] GitHub Migration Dashboard starting...`);
@@ -154,13 +154,9 @@ function startServer() {
   });
 
   app.get('/api/migration-worker', (req, res) => {
-    const inProgress = state.listAll().filter(r => 
-      ['queued', 'exporting', 'exported', 'importing'].includes(r.status)
-    );
     res.json({
       running: migrationWorkerRunning,
-      inProgress: inProgress.length,
-      maxConcurrent: MAX_CONCURRENT_MIGRATIONS
+      currentRepo: migrationWorkerCurrentRepo
     });
   });
 
@@ -322,7 +318,8 @@ async function statusWorkerCheck() {
       () => {
         statusWorkerCurrentRepo = null;
         broadcastStateUpdate();
-      }
+      },
+      () => !statusWorkerRunning
     );
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in status worker:`, error);
@@ -335,7 +332,7 @@ function startMigrationWorker() {
   }
   
   migrationWorkerRunning = true;
-  console.log(`[${new Date().toISOString()}] Migration worker started (max ${MAX_CONCURRENT_MIGRATIONS} concurrent)`);
+  console.log(`[${new Date().toISOString()}] Migration worker started`);
   
   broadcastStateUpdate();
   
@@ -349,6 +346,7 @@ function stopMigrationWorker() {
   }
   
   migrationWorkerRunning = false;
+  migrationWorkerCurrentRepo = null;
   
   if (migrationWorkerInterval) {
     clearTimeout(migrationWorkerInterval);
@@ -366,41 +364,42 @@ async function runMigrationWorkerTick() {
   }
   
   try {
-    // Count current in-progress migrations
-    const allRepos = state.listAll();
-    const inProgress = allRepos.filter(r => 
-      ['queued', 'exporting', 'exported', 'importing'].includes(r.status)
-    );
-    
-    const slotsAvailable = MAX_CONCURRENT_MIGRATIONS - inProgress.length;
-    
-    if (slotsAvailable > 0) {
-      // Try to queue up to available slots
-      let queued = 0;
-      for (let i = 0; i < slotsAvailable; i++) {
-        const repoName = await queueNextRepo(config);
-        if (repoName) {
-          console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repoName} (${inProgress.length + queued + 1}/${MAX_CONCURRENT_MIGRATIONS})`);
-          queued++;
-          broadcastStateUpdate();
-        } else {
-          break; // No more repos to queue
-        }
+    // Queue all unsynced repos
+    let queued = 0;
+    while (true) {
+      // Check if worker was stopped
+      if (!migrationWorkerRunning) {
+        console.log(`[${new Date().toISOString()}] Migration worker: Stopping (worker disabled)`);
+        migrationWorkerCurrentRepo = null;
+        broadcastStateUpdate();
+        return;
       }
       
-      if (queued > 0) {
-        // Check again soon for more slots
-        migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 5000);
+      const repoName = await queueNextRepo(config, (name) => {
+        migrationWorkerCurrentRepo = name;
+        broadcastStateUpdate();
+      });
+      
+      if (repoName) {
+        console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repoName}`);
+        queued++;
+        migrationWorkerCurrentRepo = null;
+        broadcastStateUpdate();
       } else {
-        // No repos to queue, wait longer
-        migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 30000);
+        migrationWorkerCurrentRepo = null;
+        break; // No more repos to queue
       }
-    } else {
-      // At capacity, check again soon
-      migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 10000);
     }
+    
+    if (queued > 0) {
+      console.log(`[${new Date().toISOString()}] Migration worker: Queued ${queued} repo${queued > 1 ? 's' : ''}`);
+    }
+    
+    // Check again later for new repos
+    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 30000);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in migration worker:`, error);
+    migrationWorkerCurrentRepo = null;
     broadcastStateUpdate();
     
     // Retry after a delay
@@ -457,11 +456,12 @@ async function runProgressWorkerTick() {
       () => {
         progressWorkerCurrentRepo = null;
         broadcastStateUpdate();
-      }
+      },
+      () => !progressWorkerRunning
     );
     
-    // Check again in a few seconds
-    progressWorkerInterval = setTimeout(runProgressWorkerTick, 5000);
+    // Check again in 1 minute
+    progressWorkerInterval = setTimeout(runProgressWorkerTick, 60000);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in progress worker:`, error);
     progressWorkerCurrentRepo = null;

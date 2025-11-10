@@ -167,39 +167,45 @@ export function extractMigrationId(output: string): string | null {
 export async function getMigrationStatus(
   hostConfig: HostConfig,
   migrationId: string
-): Promise<{ state: string; createdAt?: string; updatedAt?: string; failureReason?: string } | null> {
+): Promise<{ state: string; createdAt?: string; updatedAt?: string; failureReason?: string; rawResponse?: string } | null> {
   try {
     // Use GraphQL API to query migration status
     const query = `query($id: ID!) { node(id: $id) { ... on RepositoryMigration { id state createdAt failureReason sourceUrl } } }`;
 
-    const args = ['api', 'graphql'];
-    
-    if (hostConfig.hostLabel !== 'github.com') {
-      args.push('--hostname', hostConfig.hostLabel);
-    }
-    
-    args.push('-f', `query=${query}`, '-F', `id=${migrationId}`);
+    const apiUrl = hostConfig.hostLabel === 'github.com' 
+      ? 'https://api.github.com/graphql'
+      : `https://${hostConfig.hostLabel}/api/graphql`;
 
-    const result = await runGh(args, { GH_TOKEN: hostConfig.token });
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${hostConfig.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: { id: migrationId }
+      })
+    });
 
-    if (result.code !== 0) {
-      // Don't log errors for every check - migrations complete and disappear quickly
+    if (!response.ok) {
       return null;
     }
 
-    const response = JSON.parse(result.stdout);
+    const data = await response.json();
     
-    if (!response.data || !response.data.node) {
+    if (!data.data || !data.data.node) {
       // Migration not found or completed
       return null;
     }
 
-    const migration = response.data.node;
+    const migration = data.data.node;
     return {
       state: migration.state,
       createdAt: migration.createdAt,
       updatedAt: undefined,
-      failureReason: migration.failureReason
+      failureReason: migration.failureReason,
+      rawResponse: JSON.stringify(data)
     };
   } catch (error) {
     // Silently return null - migrations completing successfully will cause this
@@ -207,18 +213,161 @@ export async function getMigrationStatus(
   }
 }
 
+export async function startMigration(
+  sourceConfig: HostConfig,
+  targetConfig: HostConfig,
+  repoName: string,
+  targetRepoVisibility: string
+): Promise<{ migrationId: string | null; error?: string }> {
+  try {
+    // Use GraphQL API to start migration
+    const mutation = `
+      mutation($input: StartRepositoryMigrationInput!) {
+        startRepositoryMigration(input: $input) {
+          repositoryMigration {
+            id
+            state
+            sourceUrl
+          }
+        }
+      }
+    `;
+
+    const sourceOrgId = await getOrgId(sourceConfig);
+    const targetOrgId = await getOrgId(targetConfig);
+
+    if (!sourceOrgId || !targetOrgId) {
+      return { migrationId: null, error: 'Failed to get organization IDs' };
+    }
+
+    const sourceUrl = sourceConfig.hostLabel === 'github.com' 
+      ? `https://github.com/${sourceConfig.org}/${repoName}`
+      : `https://${sourceConfig.hostLabel}/${sourceConfig.org}/${repoName}`;
+
+    const apiUrl = targetConfig.hostLabel === 'github.com' 
+      ? 'https://api.github.com/graphql'
+      : `https://${targetConfig.hostLabel}/api/graphql`;
+
+    const input = {
+      sourceId: sourceOrgId,
+      ownerId: targetOrgId,
+      sourceRepositoryUrl: sourceUrl,
+      repositoryName: repoName,
+      continueOnError: true,
+      accessToken: sourceConfig.token,
+      githubPat: targetConfig.token,
+      targetRepoVisibility: targetRepoVisibility.toUpperCase()
+    };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${targetConfig.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: mutation,
+        variables: { input }
+      })
+    });
+
+    if (!response.ok) {
+      return { migrationId: null, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    const data = await response.json();
+    
+    if (data.errors) {
+      return { migrationId: null, error: JSON.stringify(data.errors) };
+    }
+
+    const migrationId = data.data?.startRepositoryMigration?.repositoryMigration?.id;
+    return { migrationId: migrationId || null };
+  } catch (error) {
+    return { migrationId: null, error: String(error) };
+  }
+}
+
+async function getOrgId(hostConfig: HostConfig): Promise<string | null> {
+  try {
+    const query = `query($org: String!) { organization(login: $org) { id } }`;
+    
+    const apiUrl = hostConfig.hostLabel === 'github.com' 
+      ? 'https://api.github.com/graphql'
+      : `https://${hostConfig.hostLabel}/api/graphql`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${hostConfig.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: { org: hostConfig.org }
+      })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data.data?.organization?.id || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+export async function getMigrationLogUrl(
+  hostConfig: HostConfig,
+  migrationId: string
+): Promise<string | null> {
+  try {
+    const query = `query($id: ID!) { node(id: $id) { ... on RepositoryMigration { migrationLogUrl } } }`;
+
+    const apiUrl = hostConfig.hostLabel === 'github.com' 
+      ? 'https://api.github.com/graphql'
+      : `https://${hostConfig.hostLabel}/api/graphql`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${hostConfig.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query,
+        variables: { id: migrationId }
+      })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    return data.data?.node?.migrationLogUrl || null;
+  } catch (error) {
+    return null;
+  }
+}
+
 export async function checkRepoExists(hostConfig: HostConfig, repoName: string): Promise<boolean> {
   try {
-    const args = ['api'];
-    
-    if (hostConfig.hostLabel !== 'github.com') {
-      args.push('--hostname', hostConfig.hostLabel);
-    }
-    
-    args.push(`/repos/${hostConfig.org}/${repoName}`);
+    const apiUrl = hostConfig.hostLabel === 'github.com' 
+      ? `https://api.github.com/repos/${hostConfig.org}/${repoName}`
+      : `https://${hostConfig.hostLabel}/api/v3/repos/${hostConfig.org}/${repoName}`;
 
-    const result = await runGh(args, { GH_TOKEN: hostConfig.token });
-    return result.code === 0;
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${hostConfig.token}`,
+        'Accept': 'application/vnd.github+json',
+      }
+    });
+
+    return response.ok;
   } catch (error) {
     return false;
   }

@@ -8,7 +8,8 @@ export async function checkOldestRepos(
   minAgeMinutes: number = 5, 
   batchSize: number = 5, 
   onRepoStart?: (repoName: string) => void, 
-  onRepoEnd?: () => void
+  onRepoEnd?: () => void,
+  shouldStop?: () => boolean
 ): Promise<void> {
   const allRepos = state.listAll();
   
@@ -32,8 +33,7 @@ export async function checkOldestRepos(
       }
       
       // Skip repos that are in an active migration state
-      if (repo.status === 'queued' || repo.status === 'exporting' || 
-          repo.status === 'exported' || repo.status === 'importing') {
+      if (repo.status === 'queued' || repo.status === 'syncing') {
         return false;
       }
       
@@ -69,6 +69,15 @@ export async function checkOldestRepos(
 
   // Check repos sequentially to avoid overwhelming the API
   for (const repo of reposNeedingCheck) {
+    // Check if worker should stop
+    if (shouldStop && shouldStop()) {
+      console.log(`[${new Date().toISOString()}] Status worker: Stopping check (worker disabled)`);
+      if (onRepoEnd) {
+        onRepoEnd();
+      }
+      return;
+    }
+    
     if (onRepoStart) {
       onRepoStart(repo.name);
     }
@@ -89,7 +98,7 @@ async function recheckRepoStatus(config: Config, repo: state.RepoState, onUpdate
     
     if (result.needs) {
       state.upsertRepo(repo.name, {
-        status: 'needs_migration',
+        status: 'unsynced',
         lastChecked: now,
         lastPushed: result.lastPushed
       });
@@ -101,7 +110,7 @@ async function recheckRepoStatus(config: Config, repo: state.RepoState, onUpdate
       });
     }
     
-    const newStatus = result.needs ? 'needs_migration' : 'synced';
+    const newStatus = result.needs ? 'unsynced' : 'synced';
     if (oldStatus !== newStatus) {
       console.log(`[${new Date().toISOString()}] Status worker: ${repo.name}: ${oldStatus} -> ${newStatus}`);
     }

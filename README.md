@@ -1,6 +1,6 @@
 # GitHub Migration Dashboard
 
-A TypeScript-based web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
+A TypeScript-based web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates. Uses `gh gei` CLI for all migration operations.
 
 ## Features
 
@@ -13,7 +13,7 @@ A TypeScript-based web dashboard for managing GitHub Enterprise Importer (GEI) m
 - **Time Tracking**: Shows elapsed time for active migrations and timestamps for checks and changes
 - **Persistent State**: Progress saved in local JSON file - resume anytime
 - **Migration Logs**: Click any repository to view detailed migration logs
-- **Statistics**: Overview of unsynced, queued, in-progress, synced, and failed repositories
+- **Statistics**: Overview of unsynced, queued, syncing, synced, and failed repositories
 
 ## Prerequisites
 
@@ -97,24 +97,24 @@ The application uses four independent components:
    - **Prioritizes all `unknown` repos first** (checks all of them in one run)
    - After unknowns are checked, switches to checking 5 oldest repos per run
    - Compares `pushed_at` timestamps between source and target repositories
-   - Marks repos as **UNSYNCED** (`needs_migration`) if target is missing or has older commits
+   - Marks repos as **UNSYNCED** if target is missing or has older commits
    - Marks repos as **SYNCED** if target is up to date
    - Runs every hour
    - Can be started/stopped via the dashboard UI
    - Shows currently checking repository in real-time
    
 3. **Migration Worker** (Background Thread):
-   - Queues migrations for unsynced repositories
-   - Maintains up to **10 concurrent migrations** at once
-   - Automatically queues new migrations as slots become available
-   - Checks every 5-30 seconds depending on available capacity
+   - Queues migrations for unsynced repositories using `gh gei migrate-repo`
+   - Queues all available unsynced repos in each run
+   - Checks every 30 seconds for new unsynced repos
    - Can be started/stopped via the dashboard UI
-   - Shows current utilization (e.g., "Running (7/10)")
+   - Shows currently queueing repository in real-time
    
 4. **Progress Worker** (Background Thread):
-   - Monitors in-progress migrations (queued, exporting, exported, importing)
-   - Polls GitHub API every 5 seconds to check migration progress
+   - Monitors in-progress migrations (queued and syncing)
+   - Polls GitHub API every 60 seconds to check migration progress
    - Updates repository status as migrations complete
+   - Automatically downloads migration logs when completed (success or failure)
    - Shows currently checking repository in real-time
    - Detects stale migrations (running >1 minute with status not found)
    - Marks stale migrations as `unknown` with error message
@@ -124,12 +124,16 @@ The application uses four independent components:
 
 ### Status Tracking
 
-- **UNSYNCED**: Repository needs migration (target missing or out of date)
-- **QUEUED**: Migration queued but not started
-- **IN PROGRESS**: Exporting, exported, or importing
-- **SYNCED**: Repository up to date in target (or successfully imported)
-- **FAILED**: Migration failed ❌
-- **UNKNOWN**: Status not yet determined
+The dashboard uses a simplified 6-status system with color-coding:
+
+- **UNKNOWN** (Yellow): Status not yet checked
+- **UNSYNCED** (Yellow): Repository needs migration (target missing or out of date)
+- **QUEUED** (Blue): Migration queued with GitHub but not started
+- **SYNCING** (Blue): Migration in progress (exporting, importing, etc.)
+- **SYNCED** (Green): Repository successfully synced and up to date
+- **FAILED** (Red): Migration failed ❌
+
+All GitHub migration API statuses are automatically mapped to these 6 states for a consistent, easy-to-understand view.
 
 ### Worker Control
 
@@ -169,23 +173,26 @@ Three independent workers in the header:
 - Checks ALL unknown repos first, then 5 oldest repos per run
 
 **Migration Worker**:
-- Shows current capacity usage (e.g., "Running (7/10)" or "Stopped")
+- Shows currently queueing repository (or "Running (idle)" or "Stopped")
 - Start/Stop button to control the worker
-- Queues up to 10 migrations concurrently
+- Queues all available unsynced repos
 
 **Progress Worker**:
 - Shows current repository being checked (or "Running (idle)" or "Stopped")
 - Start/Stop button to control the worker
 - Monitors all in-progress migrations (auto-starts on startup)
+- Polls every 60 seconds
+- Automatically downloads logs when migrations complete
 - Detects and marks stale migrations as unknown
 
 ### Summary Statistics
 - Total repositories
 - Unsynced (need migration)
 - Queued for migration
-- In Progress (exporting/importing)
+- Syncing (migration in progress)
 - Synced (up to date)
 - Failed
+- Unknown
 
 ### Interactive Filters
 
@@ -193,7 +200,7 @@ Three independent workers in the header:
 - Click any status pill to toggle it on/off
 - Click stat boxes (Total, Unsynced, etc.) to instantly filter by that status
 - Multiple filters can be active simultaneously
-- Filter by: UNSYNCED, QUEUED, IN PROGRESS, SYNCED, FAILED, UNKNOWN
+- Filter by: UNSYNCED, QUEUED, SYNCING, SYNCED, FAILED, UNKNOWN
 
 **Repository Name Filter:**
 - Text input on the right side of filters
@@ -208,10 +215,10 @@ Sortable columns (click headers):
 - **Last Status Change**: When the status last changed (default sort, newest first)
 - **Last Checked**: When the sync status was last verified
 - **Last Commit**: When repository was last pushed to (yyyy-mm-dd format)
-- **Elapsed Time**: Time spent on migration (for active migrations)
+- **Migration Time**: Time spent on migration (starts when syncing, stops when completed)
 - **Actions**: View detailed migration logs
 
-Click "View Logs" to see detailed migration logs for any repository with an active or completed migration.
+Click "Show Logs" to see detailed migration logs. The button only appears for repositories that have completed migrations with downloaded logs.
 
 ## API Endpoints
 
@@ -227,7 +234,7 @@ Click "View Logs" to see detailed migration logs for any repository with an acti
 - `POST /api/status-worker/stop`: Stop the Status Worker
 
 ### Migration Worker
-- `GET /api/migration-worker`: Get worker status `{ running: boolean, inProgress: number, maxConcurrent: number }`
+- `GET /api/migration-worker`: Get worker status `{ running: boolean, currentRepo: string | null }`
 - `POST /api/migration-worker/start`: Start the Migration Worker
 - `POST /api/migration-worker/stop`: Stop the Migration Worker
 
@@ -256,9 +263,9 @@ src/
 └── logs.ts              # Log retrieval
 
 data/
-└── migrations-state.json  # Persistent state
+├── migrations-state.json  # Persistent state (git-ignored)
+└── *.log                  # Downloaded migration logs
 
-logs/                    # Cached migration logs
 tmp/                     # Temporary files
 ```
 

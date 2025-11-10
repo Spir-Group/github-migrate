@@ -1,12 +1,14 @@
 import { Config } from '../config';
 import * as state from '../state';
 import { getMigrationStatus } from '../github';
+import { downloadLogs } from '../logs';
 
 export async function pollMigrationStatuses(
   config: Config, 
   onUpdate?: () => void,
   onRepoStart?: (repoName: string) => void,
-  onRepoEnd?: () => void
+  onRepoEnd?: () => void,
+  shouldStop?: () => boolean
 ): Promise<void> {
   const incomplete = state.listIncomplete();
   
@@ -14,23 +16,27 @@ export async function pollMigrationStatuses(
     return;
   }
 
-  console.log(`[${new Date().toISOString()}] Progress worker: Polling ${incomplete.length} repositories...`);
+  console.log(`[${new Date().toISOString()}] Progress worker: Checking ${incomplete.length} in-progress migration${incomplete.length > 1 ? 's' : ''}: ${incomplete.map(r => r.name).join(', ')}`);
 
-  // Poll with concurrency limit
-  const concurrency = 10;
-  for (let i = 0; i < incomplete.length; i += concurrency) {
-    const batch = incomplete.slice(i, i + concurrency);
-    
-    for (const repo of batch) {
-      if (onRepoStart) {
-        onRepoStart(repo.name);
-      }
-      
-      await pollSingleRepo(config, repo, onUpdate);
-      
+  // Poll repos sequentially
+  for (const repo of incomplete) {
+    // Check if worker should stop
+    if (shouldStop && shouldStop()) {
+      console.log(`[${new Date().toISOString()}] Progress worker: Stopping (worker disabled)`);
       if (onRepoEnd) {
         onRepoEnd();
       }
+      return;
+    }
+    
+    if (onRepoStart) {
+      onRepoStart(repo.name);
+    }
+    
+    await pollSingleRepo(config, repo, onUpdate);
+    
+    if (onRepoEnd) {
+      onRepoEnd();
     }
   }
 
@@ -86,8 +92,22 @@ async function pollSingleRepo(config: Config, repo: state.RepoState, onUpdate?: 
     const newStatus = mapGitHubStatus(status.state);
     
     if (newStatus !== repo.status) {
-      console.log(`[${new Date().toISOString()}] Progress worker: ${repo.name}: ${repo.status} -> ${newStatus}`);
+      if (newStatus === 'unknown') {
+        console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} unknown status from GitHub state: ${status.state}`);
+      } else {
+        console.log(`[${new Date().toISOString()}] Progress worker: ${repo.name}: ${repo.status} -> ${newStatus}`);
+      }
       state.setStatus(repo.name, newStatus, status.failureReason);
+      
+      // Download logs when migration completes (success or failure)
+      if ((newStatus === 'synced' || newStatus === 'failed') && !repo.logs?.cached) {
+        console.log(`[${new Date().toISOString()}] Progress worker: Downloading logs for ${repo.name}...`);
+        try {
+          await downloadLogs(config, repo.name);
+        } catch (error) {
+          console.error(`[${new Date().toISOString()}] Progress worker: Failed to download logs for ${repo.name}:`, error);
+        }
+      }
       
       if (onUpdate) {
         onUpdate();
@@ -103,19 +123,21 @@ function mapGitHubStatus(githubState: string): state.MigrationStatus {
   
   switch (stateValue) {
     case 'pending':
+    case 'pending_validation':
     case 'queued':
       return 'queued';
+    case 'in_progress':
     case 'exporting':
-      return 'exporting';
     case 'exported':
-      return 'exported';
     case 'importing':
-      return 'importing';
+      return 'syncing';
+    case 'succeeded':
     case 'imported':
-      return 'imported';
+      return 'synced';
     case 'failed':
       return 'failed';
     default:
+      console.warn(`[${new Date().toISOString()}] Progress worker: Unknown GitHub state: ${githubState}`);
       return 'unknown';
   }
 }

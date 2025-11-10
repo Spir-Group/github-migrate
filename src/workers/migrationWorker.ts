@@ -4,11 +4,11 @@ import { runGh, extractMigrationId } from '../github';
 
 // Helper to check if a status represents an unsynced state
 export function isUnsynced(status: state.MigrationStatus): boolean {
-  return status === 'needs_migration' || status === 'unsynced';
+  return status === 'unsynced';
 }
 
 // Find and queue the next unsynced repository
-export async function queueNextRepo(config: Config): Promise<string | null> {
+export async function queueNextRepo(config: Config, onRepoStart?: (repoName: string) => void): Promise<string | null> {
   const allRepos = state.listAll();
   
   // Find first repo that needs migration
@@ -18,7 +18,9 @@ export async function queueNextRepo(config: Config): Promise<string | null> {
     return null;
   }
   
-  console.log(`[${new Date().toISOString()}] Migration worker: Queueing ${unsyncedRepo.name}...`);
+  if (onRepoStart) {
+    onRepoStart(unsyncedRepo.name);
+  }
   await queueSingleRepo(config, unsyncedRepo.name, unsyncedRepo.visibility);
   
   return unsyncedRepo.name;

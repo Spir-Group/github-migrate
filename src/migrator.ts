@@ -5,7 +5,7 @@ import { MigrationStatus } from './state';
 
 // Helper to check if a status represents an unsynced state
 export function isUnsynced(status: MigrationStatus): boolean {
-  return status === 'needs_migration' || status === 'unsynced';
+  return status === 'needs_migration';
 }
 
 // Discover repositories from source and add new ones to state
