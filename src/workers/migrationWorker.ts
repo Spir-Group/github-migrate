@@ -2,13 +2,32 @@ import { Config } from '../config';
 import * as state from '../state';
 import { runGh, extractMigrationId } from '../github';
 
+const MAX_CONCURRENT_QUEUED = 10;
+
 // Helper to check if a status represents an unsynced state
 export function isUnsynced(status: state.MigrationStatus): boolean {
   return status === 'unsynced';
 }
 
+// Count repos with queued status
+export function countQueuedRepos(): number {
+  const allRepos = state.listAll();
+  return allRepos.filter(repo => repo.status === 'queued').length;
+}
+
+// Check if we can queue more repos
+export function canQueueMoreRepos(): boolean {
+  return countQueuedRepos() < MAX_CONCURRENT_QUEUED;
+}
+
 // Find and queue the next unsynced repository
 export async function queueNextRepo(config: Config, onRepoStart?: (repoName: string) => void): Promise<string | null> {
+  // Check if we've hit the concurrent queue limit
+  if (!canQueueMoreRepos()) {
+    console.log(`[${new Date().toISOString()}] Migration worker: Reached max concurrent queued repos (${MAX_CONCURRENT_QUEUED}), pausing queueing`);
+    return null;
+  }
+
   const allRepos = state.listAll();
   
   // Find first repo that needs migration

@@ -214,6 +214,17 @@ function startServer() {
     }
   });
 
+  app.post('/api/logs/:repo/download', async (req, res) => {
+    const repoName = req.params.repo;
+    try {
+      const { downloadLogs } = await import('./logs');
+      await downloadLogs(config, repoName);
+      res.json({ success: true, message: `Logs downloaded for ${repoName}` });
+    } catch (error) {
+      res.status(500).json({ success: false, error: String(error) });
+    }
+  });
+
   // Server-Sent Events endpoint
   app.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');

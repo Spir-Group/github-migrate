@@ -126,10 +126,8 @@ function renderTable(repos) {
                 <td class="timestamp">${lastPushed}</td>
                 <td class="elapsed-time" data-repo="${escapeHtml(repo.name)}">${elapsed}</td>
                 <td>
-                    ${repo.logs && repo.logs.cached ? `
-                        <button onclick="showLogs('${escapeHtml(repo.name)}')">
-                            Show Logs
-                        </button>
+                    ${(repo.logs && repo.logs.cached) || (repo.status === 'synced' && repo.migrationId) ? `
+                        <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
                     ` : ''}
                 </td>
             </tr>
@@ -189,21 +187,47 @@ function startElapsedTimer() {
     }, 1000);
 }
 
-async function showLogs(repoName) {
+async function viewLogs(repoName) {
     const modal = document.getElementById('logs-modal');
     const title = document.getElementById('modal-title');
     const content = document.getElementById('logs-content');
 
     title.textContent = `Migration Logs - ${repoName}`;
-    content.textContent = 'Loading...';
+    content.textContent = 'Loading logs...';
     modal.classList.add('show');
 
     try {
+        // First try to get existing logs
         const response = await fetch(`/api/logs/${encodeURIComponent(repoName)}`);
         const logs = await response.text();
-        content.textContent = logs;
+        
+        // If we got logs and they don't look like an error, show them
+        if (response.ok && !logs.includes('No migration ID found') && !logs.includes('Error')) {
+            content.textContent = logs;
+            return;
+        }
+        
+        // Logs not available or error message, try to download them
+        content.textContent = 'Attempting to download logs...';
+        const downloadResponse = await fetch(`/api/logs/${encodeURIComponent(repoName)}/download`, { method: 'POST' });
+        
+        if (!downloadResponse.ok) {
+            content.textContent = `Error: HTTP ${downloadResponse.status} ${downloadResponse.statusText}`;
+            return;
+        }
+        
+        const result = await downloadResponse.json();
+        if (!result.success) {
+            content.textContent = `Error: ${result.error || 'Failed to download logs'}`;
+            return;
+        }
+        
+        // Logs downloaded, now fetch them
+        const logsResponse = await fetch(`/api/logs/${encodeURIComponent(repoName)}`);
+        const downloadedLogs = await logsResponse.text();
+        content.textContent = downloadedLogs;
     } catch (error) {
-        content.textContent = `Error loading logs: ${error.message}`;
+        content.textContent = `Error: ${error.message}`;
     }
 }
 

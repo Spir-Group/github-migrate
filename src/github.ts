@@ -192,9 +192,9 @@ export async function getMigrationStatus(
       return null;
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     
-    if (!data.data || !data.data.node) {
+    if (!data?.data?.node) {
       // Migration not found or completed
       return null;
     }
@@ -241,8 +241,8 @@ export async function getMigrationLogUrl(
       return null;
     }
 
-    const data = await response.json();
-    return data.data?.node?.migrationLogUrl || null;
+    const data = await response.json() as any;
+    return data?.data?.node?.migrationLogUrl || null;
   } catch (error) {
     return null;
   }

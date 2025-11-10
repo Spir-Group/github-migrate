@@ -81,11 +81,28 @@ export async function downloadLogs(config: Config, repoName: string): Promise<st
   }
 }
 
-function downloadFromUrl(url: string): Promise<string> {
+function downloadFromUrl(url: string, maxRedirects: number = 5): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (maxRedirects <= 0) {
+      reject(new Error('Too many redirects'));
+      return;
+    }
+
     const client = url.startsWith('https') ? https : http;
     
     client.get(url, (res) => {
+      // Handle redirects (301, 302, 307, 308)
+      if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode)) {
+        const redirectUrl = res.headers.location;
+        if (!redirectUrl) {
+          reject(new Error(`Redirect without Location header (HTTP ${res.statusCode}`));
+          return;
+        }
+        // Follow the redirect
+        downloadFromUrl(redirectUrl, maxRedirects - 1).then(resolve).catch(reject);
+        return;
+      }
+
       if (res.statusCode !== 200) {
         reject(new Error(`HTTP ${res.statusCode}`));
         return;
