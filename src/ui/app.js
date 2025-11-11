@@ -121,11 +121,6 @@ function renderTable(repos) {
         const showElapsedTime = repo.status !== 'failed' && repo.status !== 'unsynced';
         const elapsedDisplay = showElapsedTime ? elapsed : '-';
         
-        // Reset elapsed time if repo just entered queued state (startedAt is set)
-        if (repo.status === 'queued' && repo.startedAt && !repo.elapsedSeconds) {
-          repo.startedAt = new Date().toISOString();
-        }
-        
         // Add title attribute with error message for failed repos
         const titleAttr = repo.status === 'failed' && repo.errorMessage ? ` title="${escapeHtml(repo.errorMessage)}"` : '';
         
@@ -427,15 +422,41 @@ function setupFilters() {
 
 function setupRepoFilter() {
     const repoFilterInput = document.getElementById('repo-filter');
+    const clearButton = document.getElementById('clear-filter');
+    
     if (repoFilterInput) {
         repoFilterInput.addEventListener('input', (e) => {
             repoNameFilter = e.target.value;
+            
+            // Show/hide clear button
+            if (clearButton) {
+                clearButton.style.display = repoNameFilter ? 'block' : 'none';
+            }
             
             // Re-render table
             if (state) {
                 renderState();
             }
         });
+    }
+}
+
+function clearRepoFilter() {
+    const repoFilterInput = document.getElementById('repo-filter');
+    const clearButton = document.getElementById('clear-filter');
+    
+    if (repoFilterInput) {
+        repoFilterInput.value = '';
+        repoNameFilter = '';
+        
+        if (clearButton) {
+            clearButton.style.display = 'none';
+        }
+        
+        // Re-render table
+        if (state) {
+            renderState();
+        }
     }
 }
 

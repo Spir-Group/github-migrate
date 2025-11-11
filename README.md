@@ -1,6 +1,7 @@
 # GitHub Migration Dashboard
 
-A TypeScript-based web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates. Uses `gh gei` CLI or GitHub APIs for all migration operations.
+Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates. 
+Uses `gh gei` CLI or GitHub APIs for all migration operations.
 
 ![screenshot](screenshot.png)
 
@@ -46,10 +47,10 @@ cp template.env .env
 Required environment variables:
 - `GH_SOURCE_ENT`: Source enterprise name
 - `GH_SOURCE_ORG`: Source organization name
-- `GH_SOURCE_TOKEN`: GitHub PAT with repo, admin:org, admin:repo_hook, and workflow scopes
+- `GH_SOURCE_TOKEN`: GitHub PAT with repo, workflow, admin:org and admin:repo_hook scopes
 - `GH_TARGET_ENT`: Target enterprise name
 - `GH_TARGET_ORG`: Target organization name  
-- `GH_TARGET_TOKEN`: GitHub PAT with repo, admin:org, admin:repo_hook, and workflow scopes
+- `GH_TARGET_TOKEN`: GitHub PAT with repo, workflow, admin:org, admin:repo_hook, and delete_repo scopes
 
 Optional (for GitHub Enterprise Server):
 - `GH_SOURCE_URL`: Source API URL (e.g., `https://ghe.example.com/api/v3`)

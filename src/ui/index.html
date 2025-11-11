@@ -15,17 +15,17 @@
                     <div id="info"></div>
                 </div>
                 <div class="status-worker-control">
-                    <div class="status-worker-title">Status Worker</div>
+                    <div class="status-worker-title" title="Worker that checks if unknown repos should be synced, and if source has received updates and must be resynced">Status Worker</div>
                     <div class="status-worker-status" id="worker-status">Initializing...</div>
                     <button id="worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
                 </div>
                 <div class="status-worker-control">
-                    <div class="status-worker-title">Migration Worker</div>
+                    <div class="status-worker-title" title="Worker that queues up to 10 unsynced repos with GitHub Enterprise Importer">Migration Worker</div>
                     <div class="status-worker-status" id="migration-worker-status">Initializing...</div>
                     <button id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
                 </div>
                 <div class="status-worker-control">
-                    <div class="status-worker-title">Progress Worker</div>
+                    <div class="status-worker-title" title="Worker that checks progress of migrations, sets status to synced and downloads logs">Progress Worker</div>
                     <div class="status-worker-status" id="progress-worker-status">Initializing...</div>
                     <button id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
                 </div>
@@ -38,48 +38,48 @@
                     <div class="stat-label">Total</div>
                     <div class="stat-value" id="stat-total">0</div>
                 </div>
-                <div class="stat-box" onclick="filterByStatBox('unsynced')" style="cursor: pointer;">
+                <div class="stat-box stat-unknown" onclick="filterByStatBox('unknown')" style="cursor: pointer;">
+                    <div class="stat-label">Unknown</div>
+                    <div class="stat-value" id="stat-unknown">0</div>
+                </div>
+                <div class="stat-box stat-unsynced" onclick="filterByStatBox('unsynced')" style="cursor: pointer;">
                     <div class="stat-label">Unsynced</div>
                     <div class="stat-value" id="stat-unsynced">0</div>
                 </div>
-                <div class="stat-box" onclick="filterByStatBox('queued')" style="cursor: pointer;">
+                <div class="stat-box stat-queued" onclick="filterByStatBox('queued')" style="cursor: pointer;">
                     <div class="stat-label">Queued</div>
                     <div class="stat-value" id="stat-queued">0</div>
                 </div>
-                <div class="stat-box" onclick="filterByStatBox('syncing')" style="cursor: pointer;">
+                <div class="stat-box stat-syncing" onclick="filterByStatBox('syncing')" style="cursor: pointer;">
                     <div class="stat-label">Syncing</div>
                     <div class="stat-value" id="stat-syncing">0</div>
                 </div>
-                <div class="stat-box" onclick="filterByStatBox('synced')" style="cursor: pointer;">
+                <div class="stat-box stat-synced" onclick="filterByStatBox('synced')" style="cursor: pointer;">
                     <div class="stat-label">Synced</div>
                     <div class="stat-value" id="stat-synced">0</div>
                 </div>
-                <div class="stat-box failed" onclick="filterByStatBox('failed')" style="cursor: pointer;">
+                <div class="stat-box stat-failed" onclick="filterByStatBox('failed')" style="cursor: pointer;">
                     <div class="stat-label">Failed</div>
                     <div class="stat-value" id="stat-failed">0</div>
-                </div>
-                <div class="stat-box" onclick="filterByStatBox('unknown')" style="cursor: pointer;">
-                    <div class="stat-label">Unknown</div>
-                    <div class="stat-value" id="stat-unknown">0</div>
                 </div>
             </div>
 
             <div class="filters">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
-                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
-                        <label>Filter by Status:</label>
-                        <div class="status-filters">
-                            <button class="filter-pill status-unsynced active" data-status="unsynced">UNSYNCED</button>
-                            <button class="filter-pill status-queued active" data-status="queued">QUEUED</button>
-                            <button class="filter-pill status-syncing active" data-status="syncing">SYNCING</button>
-                            <button class="filter-pill status-synced active" data-status="synced">SYNCED</button>
-                            <button class="filter-pill status-failed active" data-status="failed">FAILED</button>
-                            <button class="filter-pill status-unknown active" data-status="unknown">UNKNOWN</button>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="repo-filter" style="margin: 0;">Filter:</label>
+                        <div style="position: relative; display: inline-block;">
+                            <input type="text" id="repo-filter" placeholder="Filter by repository name..." style="padding: 5px 30px 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 250px;" />
+                            <button id="clear-filter" onclick="clearRepoFilter()" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 0; width: 20px; height: 20px; cursor: pointer; display: none; font-size: 16px; color: #666; line-height: 1;" title="Clear filter">&times;</button>
                         </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <label for="repo-filter">Repository:</label>
-                        <input type="text" id="repo-filter" placeholder="Filter by name..." style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 200px;" />
+                    <div class="status-filters">
+                        <button class="filter-pill status-unknown active" data-status="unknown">UNKNOWN</button>
+                        <button class="filter-pill status-unsynced active" data-status="unsynced">UNSYNCED</button>
+                        <button class="filter-pill status-queued active" data-status="queued">QUEUED</button>
+                        <button class="filter-pill status-syncing active" data-status="syncing">SYNCING</button>
+                        <button class="filter-pill status-synced active" data-status="synced">SYNCED</button>
+                        <button class="filter-pill status-failed active" data-status="failed">FAILED</button>
                     </div>
                 </div>
             </div>
@@ -89,10 +89,10 @@
                     <tr>
                         <th class="sortable" data-sort="name">Repository</th>
                         <th class="sortable" data-sort="status">Status</th>
-                        <th class="sortable" data-sort="lastUpdate">Last Status Change</th>
-                        <th class="sortable" data-sort="lastChecked">Last Checked</th>
-                        <th class="sortable" data-sort="lastPushed">Last Commit</th>
-                        <th>Duration</th>
+                        <th class="sortable" data-sort="lastUpdate" title="Last change in status in the migration dashboard">Updated</th>
+                        <th class="sortable" data-sort="lastChecked" title="Last time target was compared to source">Checked</th>
+                        <th class="sortable" data-sort="lastPushed" title="Last commit in source repo">Commit</th>
+                        <th title="Duration of migration">Duration</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
