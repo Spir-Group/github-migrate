@@ -65,8 +65,8 @@ function renderState() {
     document.getElementById('info').textContent = 
         `Migrating from ${state.sourceEnt}/${state.sourceOrg} (${state.sourceHost}) to ${state.targetEnt}/${state.targetOrg} (${state.targetHost})`;
 
-    // Calculate stats
-    const repos = Object.values(state.repos);
+    // Calculate stats (excluding deleted repos)
+    const repos = Object.values(state.repos).filter(r => r.status !== 'deleted');
     const stats = {
         total: repos.length,
         unsynced: repos.filter(r => r.status === 'unsynced').length,
@@ -86,12 +86,81 @@ function renderState() {
     document.getElementById('stat-failed').textContent = stats.failed;
     document.getElementById('stat-unknown').textContent = stats.unknown;
 
+    // Calculate summary statistics
+    updateSummaryStats(repos);
+
     // Render table
     renderTable(repos);
 }
 
+function updateSummaryStats(repos) {
+    // Find oldest lastChecked time (how recently we verified sync)
+    let oldestChecked = null;
+    repos.forEach(repo => {
+        if (repo.lastChecked) {
+            const checkedTime = new Date(repo.lastChecked).getTime();
+            if (!oldestChecked || checkedTime < oldestChecked) {
+                oldestChecked = checkedTime;
+            }
+        }
+    });
+    
+    document.getElementById('sync-point').textContent = oldestChecked 
+        ? formatTimestamp(new Date(oldestChecked).toISOString()) 
+        : '-';
+    
+    // Calculate total size
+    let totalSizeKB = 0;
+    repos.forEach(repo => {
+        if (repo.metadata?.size) {
+            totalSizeKB += repo.metadata.size;
+        }
+    });
+    document.getElementById('total-size').textContent = totalSizeKB > 0 ? formatSize(totalSizeKB) : '-';
+    
+    // Calculate total duration (only for completed migrations)
+    let totalDurationSeconds = 0;
+    let completedCount = 0;
+    repos.forEach(repo => {
+        if (repo.elapsedSeconds !== undefined && repo.elapsedSeconds > 0) {
+            totalDurationSeconds += repo.elapsedSeconds;
+            completedCount++;
+        }
+    });
+    document.getElementById('total-duration').textContent = totalDurationSeconds > 0 
+        ? formatSeconds(totalDurationSeconds) 
+        : '-';
+    
+    // Calculate wall time estimate (total duration / 10 parallel)
+    if (totalDurationSeconds > 0) {
+        const wallTimeSeconds = Math.ceil(totalDurationSeconds / 10);
+        document.getElementById('wall-time').textContent = formatSeconds(wallTimeSeconds);
+    } else {
+        document.getElementById('wall-time').textContent = '-';
+    }
+    
+    // Calculate duration per MB
+    if (totalDurationSeconds > 0 && totalSizeKB > 0) {
+        const totalSizeMB = totalSizeKB / 1024;
+        const secondsPerMB = totalDurationSeconds / totalSizeMB;
+        
+        if (secondsPerMB < 60) {
+            document.getElementById('duration-per-mb').textContent = `${Math.round(secondsPerMB)}s`;
+        } else {
+            const minutes = Math.floor(secondsPerMB / 60);
+            const seconds = Math.round(secondsPerMB % 60);
+            document.getElementById('duration-per-mb').textContent = `${minutes}m ${seconds}s`;
+        }
+    } else {
+        document.getElementById('duration-per-mb').textContent = '-';
+    }
+}
+
 function renderTable(repos) {
     const tbody = document.getElementById('migrations-tbody');
+    
+    // Filter out deleted repos
+    repos = repos.filter(r => r.status !== 'deleted');
     
     // Apply status filter - show repos that match any active filter
     repos = repos.filter(r => activeFilters.has(r.status));
@@ -103,7 +172,7 @@ function renderTable(repos) {
     }
     
     if (repos.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="loading">No repositories found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="loading">No repositories found</td></tr>';
         return;
     }
     
@@ -115,7 +184,9 @@ function renderTable(repos) {
         const statusClass = `status-${repo.status}`;
         const lastUpdate = repo.lastUpdate ? formatTimestamp(repo.lastUpdate) : '-';
         const lastChecked = repo.lastChecked ? formatTimestamp(repo.lastChecked) : '-';
+        const startedAt = repo.startedAt ? formatTimestamp(repo.startedAt) : '-';
         const lastPushed = repo.lastPushed ? formatTimestamp(repo.lastPushed, true) : '-';
+        const size = repo.metadata?.size ? formatSize(repo.metadata.size) : '-';
         
         // Only show elapsed time for repos that are currently migrating (not failed or unsynced)
         const showElapsedTime = repo.status !== 'failed' && repo.status !== 'unsynced';
@@ -130,9 +201,12 @@ function renderTable(repos) {
                 <td><span class="status-badge ${statusClass}">${getStatusLabel(repo.status)}</span></td>
                 <td class="timestamp">${lastUpdate}</td>
                 <td class="timestamp">${lastChecked}</td>
+                <td class="timestamp">${startedAt}</td>
                 <td class="timestamp">${lastPushed}</td>
-                <td class="elapsed-time" data-repo="${escapeHtml(repo.name)}">${elapsedDisplay}</td>
+                <td class="timestamp">${size}</td>
+                <td class="timestamp" data-repo="${escapeHtml(repo.name)}">${elapsedDisplay}</td>
                 <td>
+                    <button onclick="viewDetails('${escapeHtml(repo.name)}')">Details</button>
                     ${repo.status === 'failed' ? `
                         <button onclick="retryRepo('${escapeHtml(repo.name)}')">Retry</button>
                         ${repo.errorMessage ? `
@@ -141,8 +215,11 @@ function renderTable(repos) {
                         ${(repo.logs && repo.logs.cached) || repo.migrationId ? `
                             <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
                         ` : ''}
-                    ` : repo.status === 'synced' && ((repo.logs && repo.logs.cached) || repo.migrationId) ? `
-                        <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
+                    ` : repo.status === 'synced' ? `
+                        <button onclick="retryRepo('${escapeHtml(repo.name)}')">Sync</button>
+                        ${(repo.logs && repo.logs.cached) || repo.migrationId ? `
+                            <button onclick="viewLogs('${escapeHtml(repo.name)}')">Logs</button>
+                        ` : ''}
                     ` : ''}
                 </td>
             </tr>
@@ -155,11 +232,17 @@ function formatElapsedTime(repo) {
         return formatSeconds(repo.elapsedSeconds);
     }
 
-    if (repo.startedAt) {
+    // Only show live timer for actively syncing repos
+    if (repo.status === 'syncing' && repo.startedAt) {
         const start = new Date(repo.startedAt).getTime();
         const now = Date.now();
         const seconds = Math.floor((now - start) / 1000);
         return formatSeconds(seconds);
+    }
+
+    // For queued repos, show 0s if they have elapsedSeconds set to 0
+    if (repo.status === 'queued' && repo.elapsedSeconds === 0) {
+        return '0s';
     }
 
     return '-';
@@ -186,11 +269,11 @@ function startElapsedTimer() {
     setInterval(() => {
         if (!state) return;
         
-        // Update elapsed times for active repos
+        // Update elapsed times only for actively syncing repos
         const repos = Object.values(state.repos);
         repos.forEach(repo => {
-            if (!repo.endedAt && repo.startedAt) {
-                const cell = document.querySelector(`td.elapsed-time[data-repo="${repo.name}"]`);
+            if (repo.status === 'syncing' && !repo.endedAt && repo.startedAt) {
+                const cell = document.querySelector(`td[data-repo="${repo.name}"]`);
                 if (cell) {
                     const start = new Date(repo.startedAt).getTime();
                     const now = Date.now();
@@ -210,12 +293,10 @@ async function retryRepo(repoName) {
             return;
         }
         const result = await response.json();
-        if (result.success) {
-            // Reload state to show updated status
-            await loadState();
-        } else {
+        if (!result.success) {
             alert(`Error: ${result.error || 'Failed to retry repo'}`);
         }
+        // Don't reload state - let SSE update handle it naturally
     } catch (error) {
         alert(`Error: ${error.message}`);
     }
@@ -294,6 +375,84 @@ function closeLogsModal() {
     modal.classList.remove('show');
 }
 
+function formatSize(sizeKB) {
+    if (sizeKB < 1024) {
+        return `${sizeKB} KB`;
+    }
+    const sizeMB = (sizeKB / 1024).toFixed(1);
+    if (sizeMB < 1024) {
+        return `${sizeMB} MB`;
+    }
+    const sizeGB = (sizeMB / 1024).toFixed(2);
+    return `${sizeGB} GB`;
+}
+
+function viewDetails(repoName) {
+    const modal = document.getElementById('details-modal');
+    const title = document.getElementById('details-modal-title');
+    const content = document.getElementById('details-content');
+
+    title.textContent = `Repository Details - ${repoName}`;
+    
+    const repo = state.repos[repoName];
+    if (!repo) {
+        content.innerHTML = '<p>Repository not found</p>';
+        modal.classList.add('show');
+        return;
+    }
+
+    const metadata = repo.metadata || {};
+    const description = metadata.description || 'No description';
+    const language = metadata.primaryLanguage || 'Unknown';
+    const size = metadata.size ? formatSize(metadata.size) : 'Unknown';
+    const commits = metadata.commitCount !== undefined ? metadata.commitCount.toLocaleString() : 'Unknown';
+    const branches = metadata.branchCount !== undefined ? metadata.branchCount : 'Unknown';
+    const archived = metadata.archived ? 'Yes' : 'No';
+    const visibility = repo.visibility || 'Unknown';
+    const status = getStatusLabel(repo.status);
+    
+    // Format languages breakdown
+    let languagesHtml = 'Unknown';
+    if (metadata.languages && metadata.languages.length > 0) {
+        const totalBytes = metadata.languages.reduce((sum, lang) => sum + lang.size, 0);
+        languagesHtml = metadata.languages.map(lang => {
+            const percentage = ((lang.size / totalBytes) * 100).toFixed(1);
+            return `${lang.name} (${percentage}%)`;
+        }).join(', ');
+    }
+    
+    // GitHub links
+    const sourceUrl = `https://${state.sourceHost}/${state.sourceOrg}/${repoName}`;
+    const targetUrl = `https://${state.targetHost}/${state.targetOrg}/${repoName}`;
+    
+    content.innerHTML = `
+        <div style="margin-bottom: 15px; font-size: 14px; color: #666;">
+            ${escapeHtml(description)}
+        </div>
+        <div style="display: grid; grid-template-columns: auto 1fr; gap: 10px 20px; font-size: 14px;">
+            <strong>Status:</strong><div><span class="status-badge status-${repo.status}">${status}</span></div>
+            <strong>Source:</strong><span><a href="${sourceUrl}" target="_blank" rel="noopener">${sourceUrl}</a></span>
+            <strong>Target:</strong><span><a href="${targetUrl}" target="_blank" rel="noopener">${targetUrl}</a></span>
+            <strong>Visibility:</strong><span>${visibility}</span>
+            <strong>Primary Language:</strong><span>${language}</span>
+            <strong>Languages:</strong><span>${languagesHtml}</span>
+            <strong>Size:</strong><span>${size}</span>
+            <strong>Commits:</strong><span>${commits}</span>
+            <strong>Branches:</strong><span>${branches}</span>
+            <strong>Archived:</strong><span>${archived}</span>
+            ${repo.lastPushed ? `<strong>Last Pushed:</strong><span>${formatTimestamp(repo.lastPushed)}</span>` : ''}
+            ${repo.lastChecked ? `<strong>Last Checked:</strong><span>${formatTimestamp(repo.lastChecked)}</span>` : ''}
+        </div>
+    `;
+    
+    modal.classList.add('show');
+}
+
+function closeDetailsModal() {
+    const modal = document.getElementById('details-modal');
+    modal.classList.remove('show');
+}
+
 // Close modal on backdrop click
 document.getElementById('logs-modal').addEventListener('click', (e) => {
     if (e.target.id === 'logs-modal') {
@@ -301,10 +460,17 @@ document.getElementById('logs-modal').addEventListener('click', (e) => {
     }
 });
 
+document.getElementById('details-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'details-modal') {
+        closeDetailsModal();
+    }
+});
+
 // Close modal on escape key
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeLogsModal();
+        closeDetailsModal();
     }
 });
 
@@ -362,9 +528,19 @@ function sortRepos(repos) {
         } else if (sortColumn === 'lastChecked') {
             aVal = a.lastChecked ? new Date(a.lastChecked).getTime() : 0;
             bVal = b.lastChecked ? new Date(b.lastChecked).getTime() : 0;
+        } else if (sortColumn === 'startedAt') {
+            aVal = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+            bVal = b.startedAt ? new Date(b.startedAt).getTime() : 0;
         } else if (sortColumn === 'lastPushed') {
             aVal = a.lastPushed ? new Date(a.lastPushed).getTime() : 0;
             bVal = b.lastPushed ? new Date(b.lastPushed).getTime() : 0;
+        } else if (sortColumn === 'duration') {
+            // Sort by elapsed seconds, treating repos without duration as having 0 duration
+            aVal = a.elapsedSeconds !== undefined ? a.elapsedSeconds : (a.startedAt ? Math.floor((Date.now() - new Date(a.startedAt).getTime()) / 1000) : 0);
+            bVal = b.elapsedSeconds !== undefined ? b.elapsedSeconds : (b.startedAt ? Math.floor((Date.now() - new Date(b.startedAt).getTime()) / 1000) : 0);
+        } else if (sortColumn === 'size') {
+            aVal = a.metadata?.size || 0;
+            bVal = b.metadata?.size || 0;
         }
         
         if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;

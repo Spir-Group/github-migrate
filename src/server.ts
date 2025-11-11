@@ -242,7 +242,6 @@ function startServer() {
       console.log(`[${new Date().toISOString()}] Retry: Queueing ${repoName}...`);
       await queueSingleRepo(config, repoName, repo.visibility);
       
-      console.log(`[${new Date().toISOString()}] Retry successfully queued ${repoName}`);
       broadcastStateUpdate();
       res.json({ success: true, message: `Retry queued for ${repoName}` });
     } catch (error) {
@@ -308,19 +307,13 @@ function startStatusWorker() {
     return;
   }
   
-  // Check every hour for repos older than 5 minutes
-  const statusWorkerIntervalSeconds = 3600; // 1 hour
-  
   statusWorkerRunning = true;
-  console.log(`[${new Date().toISOString()}] Status worker started (checking every ${statusWorkerIntervalSeconds}s)`);
-  
-  // Run immediately on startup
-  statusWorkerCheck();
-  
-  // Then run on interval
-  statusWorkerInterval = setInterval(statusWorkerCheck, statusWorkerIntervalSeconds * 1000);
+  console.log(`[${new Date().toISOString()}] Status worker started (continuous mode)`);
   
   broadcastStateUpdate();
+  
+  // Start the worker loop
+  runStatusWorkerTick();
 }
 
 function stopStatusWorker() {
@@ -332,7 +325,7 @@ function stopStatusWorker() {
   statusWorkerCurrentRepo = null;
   
   if (statusWorkerInterval) {
-    clearInterval(statusWorkerInterval);
+    clearTimeout(statusWorkerInterval);
     statusWorkerInterval = null;
   }
   
@@ -340,13 +333,19 @@ function stopStatusWorker() {
   broadcastStateUpdate();
 }
 
-async function statusWorkerCheck() {
+async function runStatusWorkerTick() {
+  // Exit if worker was stopped
+  if (!statusWorkerRunning) {
+    return;
+  }
+  
   try {
-    await checkOldestRepos(
+    // Check repos older than 1 hour, or all repos if some have never been checked
+    const checkedCount = await checkOldestRepos(
       config, 
       broadcastStateUpdate, 
-      5, 
-      5,
+      60, // Check repos older than 60 minutes
+      1,  // Check 1 repo at a time
       (repoName) => {
         statusWorkerCurrentRepo = repoName;
         broadcastStateUpdate();
@@ -357,8 +356,19 @@ async function statusWorkerCheck() {
       },
       () => !statusWorkerRunning
     );
+    
+    // If we checked repos, immediately check for more
+    if (checkedCount > 0) {
+      // Schedule next tick immediately
+      statusWorkerInterval = setTimeout(runStatusWorkerTick, 100);
+    } else {
+      // All repos checked within last hour, idle for 1 minute before checking again
+      statusWorkerInterval = setTimeout(runStatusWorkerTick, 60 * 1000);
+    }
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in status worker:`, error);
+    // Retry after 1 minute on error
+    statusWorkerInterval = setTimeout(runStatusWorkerTick, 60 * 1000);
   }
 }
 

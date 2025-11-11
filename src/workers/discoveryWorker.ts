@@ -10,6 +10,20 @@ export async function discoverRepositories(config: Config, onUpdate?: () => void
   console.log(`[${new Date().toISOString()}] Found ${repos.length} repositories`);
 
   let newRepoCount = 0;
+  let deletedRepoCount = 0;
+  
+  // Create a set of current repo names from source
+  const sourceRepoNames = new Set(repos.map(r => r.name));
+  
+  // Mark repos not in source as deleted
+  const allStateRepos = state.listAll();
+  for (const stateRepo of allStateRepos) {
+    if (!sourceRepoNames.has(stateRepo.name) && stateRepo.status !== 'deleted') {
+      state.setStatus(stateRepo.name, 'deleted');
+      deletedRepoCount++;
+      console.log(`[${new Date().toISOString()}] Marked ${stateRepo.name} as deleted (no longer in source)`);
+    }
+  }
   
   // Update state with discovered repos (only add new ones)
   for (const repo of repos) {
@@ -26,8 +40,12 @@ export async function discoverRepositories(config: Config, onUpdate?: () => void
 
   if (newRepoCount > 0) {
     console.log(`[${new Date().toISOString()}] Added ${newRepoCount} new repositories to state`);
-  } else {
-    console.log(`[${new Date().toISOString()}] No new repositories found`);
+  }
+  if (deletedRepoCount > 0) {
+    console.log(`[${new Date().toISOString()}] Marked ${deletedRepoCount} repositories as deleted`);
+  }
+  if (newRepoCount === 0 && deletedRepoCount === 0) {
+    console.log(`[${new Date().toISOString()}] No changes to repository list`);
   }
 
   await state.saveState();

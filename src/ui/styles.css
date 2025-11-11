@@ -334,10 +334,6 @@ button:disabled {
     cursor: not-allowed;
 }
 
-.elapsed-time {
-    color: var(--text-secondary);
-}
-
 .timestamp {
     color: var(--text-secondary);
     font-size: 13px;

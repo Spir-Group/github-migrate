@@ -26,7 +26,6 @@ export function canQueueMoreRepos(): boolean {
 export async function queueNextRepo(config: Config, onRepoStart?: (repoName: string) => void): Promise<string | null> {
   // Check if we've hit the concurrent queue limit
   if (!canQueueMoreRepos()) {
-    console.log(`[${new Date().toISOString()}] Migration worker: Reached max concurrent queued repos (${MAX_CONCURRENT_QUEUED}), pausing queueing`);
     return null;
   }
 
@@ -72,10 +71,9 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
     // Try to set target visibility
     args.push('--target-repo-visibility', visibility);
 
-    console.log(`[${new Date().toISOString()}] Queueing ${repoName}...`);
     const result = await runGh(args);
 
-    // Clean up octopath log files that gh gei might create
+    // Clean up octopath log files that gh gei might create (silently)
     await cleanupOctopathLogs();
 
     if (result.code !== 0) {
@@ -87,13 +85,11 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
     // Check for "already contains" error in stdout or stderr
     const combinedOutput = result.stdout + result.stderr;
     if (combinedOutput.includes('already contains a repository with the name')) {
-      console.log(`[${new Date().toISOString()}] Target repo exists for ${repoName}, deleting and retrying...`);
       
       // Try to delete the target repository
       const deleteSuccess = await deleteTargetRepository(config, repoName);
       if (deleteSuccess) {
         // Retry the migration after deletion
-        console.log(`[${new Date().toISOString()}] Retrying migration for ${repoName} after deletion...`);
         await queueSingleRepo(config, repoName, visibility);
         return;
       } else {
@@ -118,11 +114,10 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
       migrationId,
       status: 'queued',
       queuedAt: now,
-      startedAt: now,
       elapsedSeconds: 0  // Reset elapsed time when entering queued state
     });
 
-    console.log(`[${new Date().toISOString()}] Queued ${repoName} with migration ID: ${migrationId}`);
+    console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repoName}`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error queueing ${repoName}:`, error);
     state.setStatus(repoName, 'failed', String(error));
@@ -131,7 +126,6 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
 
 async function deleteTargetRepository(config: Config, repoName: string): Promise<boolean> {
   try {
-    console.log(`[${new Date().toISOString()}] Deleting target repository ${config.target.org}/${repoName}...`);
     
     const apiUrl = config.target.hostLabel === 'github.com'
       ? `https://api.github.com/repos/${config.target.org}/${repoName}`
@@ -146,7 +140,6 @@ async function deleteTargetRepository(config: Config, repoName: string): Promise
     });
     
     if (response.ok || response.status === 204) {
-      console.log(`[${new Date().toISOString()}] Successfully deleted ${repoName} from target`);
       return true;
     } else {
       const errorText = await response.text();
@@ -170,13 +163,12 @@ async function cleanupOctopathLogs(): Promise<void> {
       const filePath = path.join(cwd, file);
       try {
         fs.unlinkSync(filePath);
-        console.log(`[${new Date().toISOString()}] Cleaned up octopath log: ${file}`);
+        // Silently clean up - no logging
       } catch (err) {
-        console.warn(`[${new Date().toISOString()}] Failed to clean up ${file}:`, err);
+        // Silently ignore cleanup failures
       }
     }
   } catch (error) {
     // Silently ignore errors during cleanup
-    console.warn(`[${new Date().toISOString()}] Error during octopath log cleanup:`, error);
   }
 }

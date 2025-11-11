@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export type MigrationStatus = 'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed';
+export type MigrationStatus = 'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed' | 'deleted';
 export type RepoVisibility = 'public' | 'private' | 'internal';
 
 export interface RepoState {
@@ -10,7 +10,7 @@ export interface RepoState {
   migrationId?: string;
   status: MigrationStatus;
   queuedAt?: string;
-  startedAt?: string;
+  startedAt?: string; // When the repo entered 'syncing' status
   endedAt?: string;
   elapsedSeconds?: number;
   lastUpdate?: string;
@@ -22,6 +22,15 @@ export interface RepoState {
     cached: boolean;
     cacheDir?: string;
     lastFetchedAt?: string;
+  };
+  metadata?: {
+    description?: string;
+    primaryLanguage?: string;
+    languages?: Array<{ name: string; size: number }>; // All languages with sizes
+    size?: number; // Size in KB
+    commitCount?: number;
+    branchCount?: number;
+    archived?: boolean;
   };
 }
 

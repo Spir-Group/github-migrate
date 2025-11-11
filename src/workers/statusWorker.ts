@@ -1,6 +1,6 @@
 import { Config } from '../config';
 import * as state from '../state';
-import { needsMigration } from '../github';
+import { needsMigration, getRepoMetadata } from '../github';
 
 export async function checkOldestRepos(
   config: Config, 
@@ -10,11 +10,11 @@ export async function checkOldestRepos(
   onRepoStart?: (repoName: string) => void, 
   onRepoEnd?: () => void,
   shouldStop?: () => boolean
-): Promise<void> {
-  const allRepos = state.listAll();
+): Promise<number> {
+  const allRepos = state.listAll().filter(r => r.status !== 'deleted');
   
   if (allRepos.length === 0) {
-    return;
+    return 0;
   }
 
   // Find repos that need status check
@@ -57,14 +57,14 @@ export async function checkOldestRepos(
   // Prioritize unknown repos, then add other repos if there's room
   let reposNeedingCheck: state.RepoState[];
   if (unknownRepos.length > 0) {
-    reposNeedingCheck = unknownRepos;
-    console.log(`[${new Date().toISOString()}] Status worker: Checking all ${unknownRepos.length} unknown repositories...`);
+    reposNeedingCheck = unknownRepos.slice(0, batchSize);
+    console.log(`[${new Date().toISOString()}] Status worker: Checking ${reposNeedingCheck.length} of ${unknownRepos.length} unknown repositories...`);
   } else {
     reposNeedingCheck = otherReposNeedingCheck;
     if (reposNeedingCheck.length === 0) {
-      return;
+      return 0;
     }
-    console.log(`[${new Date().toISOString()}] Status worker: Checking ${reposNeedingCheck.length} oldest repositories...`);
+    // Don't log for routine checks
   }
 
   // Check repos sequentially to avoid overwhelming the API
@@ -75,7 +75,7 @@ export async function checkOldestRepos(
       if (onRepoEnd) {
         onRepoEnd();
       }
-      return;
+      return 0;
     }
     
     if (onRepoStart) {
@@ -88,6 +88,7 @@ export async function checkOldestRepos(
   }
 
   await state.saveState();
+  return reposNeedingCheck.length;
 }
 
 async function recheckRepoStatus(config: Config, repo: state.RepoState, onUpdate?: () => void): Promise<void> {
@@ -96,17 +97,22 @@ async function recheckRepoStatus(config: Config, repo: state.RepoState, onUpdate
     const now = new Date().toISOString();
     const oldStatus = repo.status;
     
+    // Always fetch and overwrite metadata
+    const metadata = await getRepoMetadata(config.source, repo.name) || undefined;
+    
     if (result.needs) {
       state.upsertRepo(repo.name, {
         status: 'unsynced',
         lastChecked: now,
-        lastPushed: result.lastPushed
+        lastPushed: result.lastPushed,
+        metadata
       });
     } else {
       state.upsertRepo(repo.name, {
         status: 'synced',
         lastChecked: now,
-        lastPushed: result.lastPushed
+        lastPushed: result.lastPushed,
+        metadata
       });
     }
     

@@ -16,9 +16,7 @@ export async function pollMigrationStatuses(
     return;
   }
 
-  console.log(`[${new Date().toISOString()}] Progress worker: Checking ${incomplete.length} in-progress migration${incomplete.length > 1 ? 's' : ''}: ${incomplete.map(r => r.name).join(', ')}`);
-
-  // Poll repos sequentially
+  // Poll repos sequentially (don't log for routine checks)
   for (const repo of incomplete) {
     // Check if worker should stop
     if (shouldStop && shouldStop()) {
@@ -101,7 +99,6 @@ async function pollSingleRepo(config: Config, repo: state.RepoState, onUpdate?: 
       
       // Download logs when migration completes (success or failure)
       if ((newStatus === 'synced' || newStatus === 'failed') && !repo.logs?.cached) {
-        console.log(`[${new Date().toISOString()}] Progress worker: Downloading logs for ${repo.name}...`);
         try {
           await downloadLogs(config, repo.name);
         } catch (error) {

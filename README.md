@@ -10,15 +10,18 @@ Uses `gh gei` CLI or GitHub APIs for all migration operations.
 - **Real-time Dashboard**: Web interface showing all repositories under migration
 - **Three Background Workers**: Independent Status, Migration, and Progress Workers with UI controls
 - **Smart Sync Detection**: Automatically checks if repositories need migration by comparing source and target
+- **Continuous Status Checking**: Status worker runs continuously, checking oldest repos and idling when all are verified within 1 hour
 - **Live Status Updates**: Real-time updates via Server-Sent Events as repositories are checked
 - **Multi-select Filters**: Toggle status filters to show only the repositories you care about
-- **Sortable Columns**: Click column headers to sort by name, status, last checked, or last change
+- **Sortable Columns**: Click column headers to sort by name, status, timestamps, size, or duration
 - **Time Tracking**: Shows elapsed time for active migrations and timestamps for checks and changes
 - **Persistent State**: Progress saved in local JSON file - resume anytime
 - **Migration Logs**: View detailed migration logs with automatic log discovery for synced repos
-- **Error Handling**: Retry failed migrations with automatic target repository deletion
-- **Statistics**: Overview of unsynced, queued, syncing, synced, and failed repositories
-- **Enhanced UI**: Error tooltips, log/error buttons, and improved status indicators
+- **Error Handling**: Retry/resync failed or synced migrations with automatic target repository deletion
+- **Statistics**: Overview including total size, estimated wall time, and duration metrics
+- **Repository Details**: Rich metadata including description, languages breakdown, size, commits, branches, and GitHub links
+- **Auto-cleanup**: Automatically marks deleted source repos with special status (hidden from UI)
+- **Enhanced UI**: Repository details modal, summary statistics, sortable size/duration columns, and improved status indicators
 
 ## Prerequisites
 
@@ -98,13 +101,14 @@ The application uses four independent components:
    - Does NOT check sync status or queue migrations
    
 2. **Status Worker** (Background Thread):
-   - Periodically checks repositories to update their sync status
-   - **Prioritizes all `unknown` repos first** (checks all of them in one run)
-   - After unknowns are checked, switches to checking 5 oldest repos per run
+   - **Runs continuously** checking repositories one at a time
+   - **Prioritizes all `unknown` repos first** (checks all of them sequentially)
+   - After unknowns, checks oldest repos not verified in the last 60 minutes
+   - **Idles for 1 minute** when all repos have been checked within the hour
    - Compares `pushed_at` timestamps between source and target repositories
    - Marks repos as **UNSYNCED** if target is missing or has older commits
    - Marks repos as **SYNCED** if target is up to date
-   - Runs every hour
+   - **Fetches and updates metadata** (description, languages, size, commits, branches) on every check
    - Can be started/stopped via the dashboard UI
    - Shows currently checking repository in real-time
    
@@ -132,7 +136,7 @@ The application uses four independent components:
 
 ### Status Tracking
 
-The dashboard uses a simplified 6-status system with color-coding:
+The dashboard uses a simplified 7-status system with color-coding:
 
 - **UNKNOWN** (Yellow): Status not yet checked
 - **UNSYNCED** (Yellow): Repository needs migration (target missing or out of date)
@@ -140,8 +144,9 @@ The dashboard uses a simplified 6-status system with color-coding:
 - **SYNCING** (Blue): Migration in progress (exporting, importing, etc.)
 - **SYNCED** (Green): Repository successfully synced and up to date
 - **FAILED** (Red): Migration failed ❌
+- **DELETED** (Hidden): Repository no longer exists in source organization
 
-All GitHub migration API statuses are automatically mapped to these 6 states for a consistent, easy-to-understand view.
+All GitHub migration API statuses are automatically mapped to these states for a consistent, easy-to-understand view. Deleted repositories are automatically filtered out of the UI but remain in state for historical tracking.
 
 ### Worker Control
 
@@ -194,7 +199,16 @@ Three independent workers in the header:
 - Detects and marks stale migrations as unknown
 
 ### Summary Statistics
-- Total repositories
+
+**Migration Overview:**
+- **Synced up to**: When the least recently checked repo was last verified (shows data freshness)
+- **Total size**: Combined size of all repositories
+- **Total duration**: Sum of all completed migration times
+- **Est. wall time (10 in parallel)**: Estimated time for all migrations to complete
+- **Duration/MB**: Average migration speed
+
+**Repository Counts:**
+- Total repositories (excluding deleted)
 - Unsynced (need migration)
 - Queued for migration
 - Syncing (migration in progress)
@@ -220,16 +234,20 @@ Three independent workers in the header:
 Sortable columns (click headers):
 - **Repository**: Name of the repository
 - **Status**: Current sync/migration status (color-coded pills)
-- **Last Status Change**: When the status last changed (default sort, newest first)
-- **Last Checked**: When the sync status was last verified
-- **Last Commit**: When repository was last pushed to (yyyy-mm-dd format)
-- **Duration**: Time spent on migration (starts when queued, stops when completed)
+- **Updated**: When the status last changed (default sort, newest first)
+- **Checked**: When the sync status was last verified
+- **Synced**: When the repository entered syncing status (blank for queued repos)
+- **Commit**: When repository was last pushed to (yyyy-mm-dd format)
+- **Size**: Repository size (formatted as KB/MB/GB)
+- **Duration**: Time spent on migration (only ticks for actively syncing repos, shows final time for completed)
 - **Actions**: Buttons for managing repository migrations
 
 **Action Buttons**:
+- **Details** (All repos): View comprehensive repository details including description, languages breakdown, size, commits, branches, and links to source/target repos
+- **Resync** (Synced repos): Requeue a synced repository for migration (non-blocking operation)
 - **Retry** (Failed repos): Retry a failed migration. Automatically deletes the target repository if it was partially created.
 - **Errors** (Failed repos): View detailed error message for a failed migration
-- **Logs** (Synced/Failed repos): View detailed migration logs. For synced repos, shows cached logs or attempts to find them. For failed repos, shows available error logs.
+- **Logs** (Synced/Failed repos): View detailed migration logs
 
 ## API Endpoints
 

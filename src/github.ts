@@ -318,3 +318,89 @@ export async function needsMigration(sourceConfig: HostConfig, targetConfig: Hos
 
   return { needs: false, lastPushed: sourceLastUpdated };
 }
+
+export interface RepoMetadata {
+  description?: string;
+  primaryLanguage?: string;
+  languages?: Array<{ name: string; size: number }>;
+  size?: number;
+  commitCount?: number;
+  branchCount?: number;
+  archived?: boolean;
+}
+
+export async function getRepoMetadata(hostConfig: HostConfig, repoName: string): Promise<RepoMetadata | null> {
+  try {
+    const query = `
+      query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          description
+          primaryLanguage {
+            name
+          }
+          languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
+            edges {
+              size
+              node {
+                name
+              }
+            }
+          }
+          diskUsage
+          isArchived
+          defaultBranchRef {
+            target {
+              ... on Commit {
+                history(first: 0) {
+                  totalCount
+                }
+              }
+            }
+          }
+          refs(refPrefix: "refs/heads/", first: 0) {
+            totalCount
+          }
+        }
+      }
+    `;
+
+    const args = ['api', 'graphql'];
+    
+    if (hostConfig.hostLabel !== 'github.com') {
+      args.push('--hostname', hostConfig.hostLabel);
+    }
+    
+    args.push('-f', `query=${query}`, '-F', `owner=${hostConfig.org}`, '-F', `name=${repoName}`);
+
+    const result = await runGh(args, { GH_TOKEN: hostConfig.token });
+    
+    if (result.code !== 0) {
+      return null;
+    }
+
+    const response = JSON.parse(result.stdout);
+    const repo = response?.data?.repository;
+    
+    if (!repo) {
+      return null;
+    }
+
+    const languages = repo.languages?.edges?.map((edge: any) => ({
+      name: edge.node.name,
+      size: edge.size
+    })) || [];
+
+    return {
+      description: repo.description || undefined,
+      primaryLanguage: repo.primaryLanguage?.name || undefined,
+      languages: languages.length > 0 ? languages : undefined,
+      size: repo.diskUsage || undefined,
+      commitCount: repo.defaultBranchRef?.target?.history?.totalCount || undefined,
+      branchCount: repo.refs?.totalCount || undefined,
+      archived: repo.isArchived || false
+    };
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error fetching metadata for ${repoName}:`, error);
+    return null;
+  }
+}

@@ -33,8 +33,6 @@ export async function downloadLogs(config: Config, repoName: string): Promise<st
   const logFile = getLogFilePath(config, repoName);
   
   try {
-    console.log(`[${new Date().toISOString()}] Downloading logs for ${repoName}...`);
-    
     // Ensure directories exist
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -72,7 +70,6 @@ export async function downloadLogs(config: Config, repoName: string): Promise<st
     });
     await state.saveState();
 
-    console.log(`[${new Date().toISOString()}] Logs for ${repoName} downloaded and saved`);
     return logContent;
   } catch (error) {
     const errorMsg = `Error downloading logs: ${String(error)}`;
