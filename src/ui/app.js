@@ -685,13 +685,10 @@ async function loadStatusWorkerInfo() {
 }
 
 function updateStatusWorkerUI() {
-    const control = document.querySelector('.status-worker-control');
     const statusEl = document.getElementById('worker-status');
     const buttonEl = document.getElementById('worker-toggle');
     
     if (statusWorkerInfo.running) {
-        control.classList.add('running');
-        control.classList.remove('stopped');
         buttonEl.textContent = 'Stop';
         buttonEl.disabled = false;
         
@@ -701,8 +698,6 @@ function updateStatusWorkerUI() {
             statusEl.textContent = 'Running (idle)';
         }
     } else {
-        control.classList.remove('running');
-        control.classList.add('stopped');
         buttonEl.textContent = 'Start';
         buttonEl.disabled = false;
         statusEl.textContent = 'Stopped';
@@ -741,14 +736,10 @@ async function loadMigrationWorkerInfo() {
 }
 
 function updateMigrationWorkerUI() {
-    const controls = document.querySelectorAll('.status-worker-control');
-    const control = controls[1]; // Second control is Migration Worker
     const statusEl = document.getElementById('migration-worker-status');
     const buttonEl = document.getElementById('migration-worker-toggle');
     
     if (migrationWorkerInfo.running) {
-        control.classList.add('running');
-        control.classList.remove('stopped');
         buttonEl.textContent = 'Stop';
         buttonEl.disabled = false;
         
@@ -758,8 +749,6 @@ function updateMigrationWorkerUI() {
             statusEl.textContent = 'Running (idle)';
         }
     } else {
-        control.classList.remove('running');
-        control.classList.add('stopped');
         buttonEl.textContent = 'Start';
         buttonEl.disabled = false;
         statusEl.textContent = 'Stopped';
@@ -798,14 +787,10 @@ async function loadProgressWorkerInfo() {
 }
 
 function updateProgressWorkerUI() {
-    const controls = document.querySelectorAll('.status-worker-control');
-    const control = controls[2]; // Third control is Progress Worker
     const statusEl = document.getElementById('progress-worker-status');
     const buttonEl = document.getElementById('progress-worker-toggle');
     
     if (progressWorkerInfo.running) {
-        control.classList.add('running');
-        control.classList.remove('stopped');
         buttonEl.textContent = 'Stop';
         buttonEl.disabled = false;
         
@@ -815,8 +800,6 @@ function updateProgressWorkerUI() {
             statusEl.textContent = 'Running (idle)';
         }
     } else {
-        control.classList.remove('running');
-        control.classList.add('stopped');
         buttonEl.textContent = 'Start';
         buttonEl.disabled = false;
         statusEl.textContent = 'Stopped';

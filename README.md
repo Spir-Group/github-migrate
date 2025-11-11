@@ -1,7 +1,6 @@
 # GitHub Migration Dashboard
 
-Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates. 
-Uses `gh gei` CLI or GitHub APIs for all migration operations.
+Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
 
 ![screenshot](screenshot.png)
 
@@ -22,6 +21,11 @@ Uses `gh gei` CLI or GitHub APIs for all migration operations.
 - **Repository Details**: Rich metadata including description, languages breakdown, size, commits, branches, and GitHub links
 - **Auto-cleanup**: Automatically marks deleted source repos with special status (hidden from UI)
 - **Enhanced UI**: Repository details modal, summary statistics, sortable size/duration columns, and improved status indicators
+
+## Limitations
+
+I add features only as I need them, currently this only handles pure repo syncronization between github.org enterprises. Does not work for pure organizations, does probably not work for ghe.com setups. 
+Does not migrate projects boards, integrations and apps, action secrets, environments and variables, team structure and repo ownership etc.
 
 ## Prerequisites
 
@@ -311,6 +315,72 @@ data/
 
 tmp/                     # Temporary files
 ```
+
+## Data Model
+
+The application stores migration state in `data/migrations-state.json`. The state includes:
+
+### Global State
+- **version**: Schema version (currently 1)
+- **sourceEnt/sourceOrg**: Source enterprise and organization
+- **targetEnt/targetOrg**: Target enterprise and organization  
+- **sourceHost/targetHost**: GitHub host URLs (github.com or GHES)
+- **repos**: Dictionary of repository states keyed by repository name
+
+### Repository State (RepoState)
+
+Each repository in the `repos` dictionary contains:
+
+**Core Fields:**
+- **name**: Repository name
+- **visibility**: `'public' | 'private' | 'internal'`
+- **status**: `'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed' | 'deleted'`
+
+**Migration Tracking:**
+- **migrationId**: GitHub migration ID (if migration was started)
+- **queuedAt**: ISO timestamp when migration was queued
+- **startedAt**: ISO timestamp when repo entered 'syncing' status
+- **endedAt**: ISO timestamp when migration completed or failed
+- **elapsedSeconds**: Total migration duration in seconds (calculated when completed)
+
+**Status Tracking:**
+- **lastUpdate**: ISO timestamp of last status change
+- **lastPolledAt**: ISO timestamp of last progress check
+- **lastChecked**: ISO timestamp when sync status was last verified (comparing source/target)
+- **lastPushed**: ISO timestamp of last commit in source repository
+
+**Error Handling:**
+- **errorMessage**: Error message if migration failed
+
+**Logs:**
+- **logs.cached**: Boolean indicating if migration logs are cached locally
+- **logs.cacheDir**: Directory containing cached logs
+- **logs.lastFetchedAt**: ISO timestamp when logs were last fetched
+
+**Metadata** (fetched during status checks):
+- **metadata.description**: Repository description
+- **metadata.primaryLanguage**: Main programming language
+- **metadata.languages**: Array of `{ name: string, size: number }` for all languages
+- **metadata.size**: Repository size in kilobytes
+- **metadata.commitCount**: Number of commits
+- **metadata.branchCount**: Number of branches
+- **metadata.archived**: Boolean indicating if repository is archived
+
+### Status Flow
+
+```
+unknown → unsynced → queued → syncing → synced
+                                   ↓
+                                failed
+```
+
+- **unknown**: Initial state, not yet checked
+- **unsynced**: Target missing or out of date (needs migration)
+- **queued**: Migration queued with GitHub but not started
+- **syncing**: Migration in progress
+- **synced**: Migration completed successfully, target up to date
+- **failed**: Migration failed (can be retried)
+- **deleted**: Source repository no longer exists (hidden from UI)
 
 ## Graceful Shutdown
 
