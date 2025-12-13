@@ -6,8 +6,9 @@ Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer
 
 ## Features
 
+- **Multi-Sync Support**: Manage multiple source/target organization sync configurations
 - **Real-time Dashboard**: Web interface showing all repositories under migration
-- **Three Background Workers**: Independent Status, Migration, and Progress Workers with UI controls
+- **Four Background Workers**: Independent Discovery, Status, Migration, and Progress Workers with UI controls
 - **Smart Sync Detection**: Automatically checks if repositories need migration by comparing source and target
 - **Continuous Status Checking**: Status worker runs continuously, checking oldest repos and idling when all are verified within 1 hour
 - **Live Status Updates**: Real-time updates via Server-Sent Events as repositories are checked
@@ -20,7 +21,8 @@ Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer
 - **Statistics**: Overview including total size, estimated wall time, and duration metrics
 - **Repository Details**: Rich metadata including description, languages breakdown, size, commits, branches, and GitHub links
 - **Auto-cleanup**: Automatically marks deleted source repos with special status (hidden from UI)
-- **Enhanced UI**: Repository details modal, summary statistics, sortable size/duration columns, and improved status indicators
+- **Enhanced UI**: Repository details modal, summary statistics, sortable size/duration columns, collapsible sync section, and improved status indicators
+- **PAT Validation**: Test connection with comprehensive token scope and SSO authorization validation
 
 ## Limitations
 
@@ -45,23 +47,27 @@ npm run build
 
 ## Configuration
 
-Copy `template.env` to `.env` and fill in your values:
+Sync configurations are managed through the web UI. Each sync defines:
 
-```bash
-cp template.env .env
-```
+- **Name**: A descriptive name for the sync configuration
+- **Source**: Enterprise, organization, optional API URL, and PAT
+- **Target**: Enterprise, organization, optional API URL, and PAT
 
-Required environment variables:
-- `GH_SOURCE_ENT`: Source enterprise name
-- `GH_SOURCE_ORG`: Source organization name
-- `GH_SOURCE_TOKEN`: GitHub PAT with repo, workflow, admin:org and admin:repo_hook scopes
-- `GH_TARGET_ENT`: Target enterprise name
-- `GH_TARGET_ORG`: Target organization name  
-- `GH_TARGET_TOKEN`: GitHub PAT with repo, workflow, admin:org, admin:repo_hook, and delete_repo scopes
+### PAT Requirements
 
-Optional (for GitHub Enterprise Server):
-- `GH_SOURCE_URL`: Source API URL (e.g., `https://ghe.example.com/api/v3`)
-- `GH_TARGET_URL`: Target API URL (e.g., `https://ghe.example.com/api/v3`)
+**Source PAT** (Classic PAT required):
+- Scopes: `repo`, `admin:org`, `workflow`, `admin:repo_hook`
+- Must be SSO-authorized for the source organization
+
+**Target PAT** (Classic PAT required):
+- Scopes: `repo`, `admin:org`, `workflow`, `admin:repo_hook`, `delete_repo`
+- Must be SSO-authorized for the target organization
+
+**Note**: Fine-grained PATs are not supported. Use classic Personal Access Tokens.
+
+### API URLs
+
+Leave the API URL empty for github.com organizations. For GitHub Enterprise Server, provide the API URL (e.g., `https://ghes.example.com/api/v3`).
 
 ## Usage
 
@@ -95,16 +101,21 @@ npm start -- --help
 
 ### Architecture
 
-The application uses four independent components:
+The application uses five independent components:
 
-1. **Main Thread (Discovery)**: 
+1. **Main Thread (Web Server)**: 
    - Web server starts immediately at `http://localhost:3000`
    - Loads existing state from `data/migrations-state.json` (if exists)
-   - Performs one-time repository discovery from source organization
-   - Adds any new repositories with `unknown` status
-   - Does NOT check sync status or queue migrations
+   - Serves the dashboard UI and API endpoints
+   - Manages sync configurations (add, edit, copy, archive)
    
-2. **Status Worker** (Background Thread):
+2. **Discovery Worker** (Background Thread):
+   - Performs repository discovery from source organizations
+   - Runs on-demand when triggered via the Discover button
+   - Adds any new repositories with `unknown` status
+   - Runs for each enabled sync configuration
+   
+3. **Status Worker** (Background Thread):
    - **Runs continuously** checking repositories one at a time
    - **Prioritizes all `unknown` repos first** (checks all of them sequentially)
    - After unknowns, checks oldest repos not verified in the last 60 minutes
@@ -113,24 +124,27 @@ The application uses four independent components:
    - Marks repos as **UNSYNCED** if target is missing or has older commits
    - Marks repos as **SYNCED** if target is up to date
    - **Fetches and updates metadata** (description, languages, size, commits, branches) on every check
+   - Works across all enabled sync configurations
    - Can be started/stopped via the dashboard UI
    - Shows currently checking repository in real-time
    
-3. **Migration Worker** (Background Thread):
+4. **Migration Worker** (Background Thread):
    - Queues migrations for unsynced repositories using `gh gei migrate-repo --queue-only`
    - Enforces max 10 concurrent queued repos to prevent overwhelming GitHub API
    - Automatically pauses queueing when limit reached, resumes after 30 seconds
    - Queues all available unsynced repos in each run (subject to concurrency limit)
    - Checks every 30 seconds for new unsynced repos
    - Automatically deletes target repository if "already contains" error occurs
+   - Works across all enabled sync configurations
    - Can be started/stopped via the dashboard UI
    - Shows currently queueing repository in real-time
    
-4. **Progress Worker** (Background Thread):
+5. **Progress Worker** (Background Thread):
    - Monitors in-progress migrations (queued and syncing)
    - Polls GitHub API every 60 seconds to check migration progress
    - Updates repository status as migrations complete
    - Automatically downloads migration logs when completed (success or failure)
+   - Works across all enabled sync configurations
    - Shows currently checking repository in real-time
    - Detects stale migrations (running >1 minute with status not found)
    - Marks stale migrations as `unknown` with error message
@@ -154,7 +168,8 @@ All GitHub migration API statuses are automatically mapped to these states for a
 
 ### Worker Control
 
-All three workers can be independently controlled from the dashboard:
+All four workers can be independently controlled from the dashboard:
+- **Discovery Worker**: Discovers new repositories from source organizations
 - **Status Worker**: Determines which repositories need syncing
 - **Migration Worker**: Queues up to 10 migrations concurrently
 - **Progress Worker**: Monitors in-progress migrations (auto-starts on startup)
@@ -191,9 +206,40 @@ cp data/backups/migrations-state-YYYY-MM-DD-HH-mm.json data/migrations-state.jso
 
 Access the dashboard at `http://localhost:3000` (or your custom port).
 
+### Sync Configuration Management
+
+The dashboard header includes a collapsible "Sync Configurations" section for managing multiple source/target organization pairs:
+
+**Add Sync**: Click "+ Add Sync" to create a new sync configuration:
+- Enter a descriptive name
+- Configure source and target: enterprise, organization, optional API URL, and PAT
+- Use "Test Connection" to validate tokens before saving
+- Validation checks token scopes, organization access, and SSO authorization
+
+**Sync Cards**: Each sync configuration is displayed as a card showing:
+- Sync name and status (enabled/disabled badge)
+- Source and target organizations
+- Repository count and sync progress
+- Last synced timestamp
+- Action buttons: Edit, Discover, Copy, Archive
+
+**Edit Sync**: Modify existing configurations. Re-enabling an archived sync automatically unarchives it.
+
+**Copy Sync**: Duplicate a sync configuration with PATs preserved server-side. Useful for creating similar configurations.
+
+**Discover**: Trigger repository discovery for a specific sync configuration.
+
+**Archive**: Hide a sync configuration and its repositories from the main view.
+
+**Test Connection**: Validates both source and target PATs:
+1. Token validity and required scopes
+2. Organization access
+3. Repository API access
+4. SSO authorization (with clickable authorization links if needed)
+
 ### Worker Controls
 
-Three independent workers in the header:
+Four independent workers in the header:
 
 **Status Worker**:
 - Shows current repository being checked (or "Running (idle)" or "Stopped")
@@ -275,6 +321,15 @@ Sortable columns (click headers):
 - `POST /api/logs/:repo/download`: Attempt to download and find logs for a synced repository
 - `GET /events`: Server-Sent Events stream for real-time updates
 
+### Sync Configuration
+- `GET /api/syncs`: List all sync configurations
+- `POST /api/syncs`: Create a new sync configuration
+- `GET /api/syncs/:id`: Get a specific sync configuration
+- `PUT /api/syncs/:id`: Update a sync configuration
+- `DELETE /api/syncs/:id`: Archive a sync configuration
+- `POST /api/syncs/:id/validate`: Test connection for a sync configuration
+- `POST /api/syncs/:id/discover`: Trigger repository discovery for a sync
+
 ### Status Worker
 - `GET /api/status-worker`: Get worker status `{ running: boolean, currentRepo: string | null }`
 - `POST /api/status-worker/start`: Start the Status Worker
@@ -304,13 +359,17 @@ src/
 │   ├── app.js
 │   └── styles.css
 ├── server.ts            # Main server and worker coordination
-├── config.ts            # Configuration management
-├── state.ts             # State management
+├── config.ts            # Configuration and PAT validation
+├── state.ts             # State management with multi-sync support
+├── types.ts             # Shared TypeScript types
+├── migration.ts         # Migration helper functions
 ├── github.ts            # GitHub API interactions
 └── logs.ts              # Log retrieval
 
 data/
 ├── migrations-state.json  # Persistent state (git-ignored)
+├── usermap.csv            # User mapping file for migrations
+├── backups/               # Hourly state backups
 └── *.log                  # Downloaded migration logs
 
 tmp/                     # Temporary files
@@ -321,11 +380,22 @@ tmp/                     # Temporary files
 The application stores migration state in `data/migrations-state.json`. The state includes:
 
 ### Global State
-- **version**: Schema version (currently 1)
-- **sourceEnt/sourceOrg**: Source enterprise and organization
-- **targetEnt/targetOrg**: Target enterprise and organization  
-- **sourceHost/targetHost**: GitHub host URLs (github.com or GHES)
+- **version**: Schema version (currently 2)
+- **syncs**: Dictionary of sync configurations keyed by sync ID
 - **repos**: Dictionary of repository states keyed by repository name
+
+### Sync Configuration (SyncConfig)
+
+Each sync in the `syncs` dictionary contains:
+
+- **id**: Unique identifier (UUID)
+- **name**: Human-readable name for the sync
+- **source**: Source configuration (enterprise, org, host, url, token)
+- **target**: Target configuration (enterprise, org, host, url, token)
+- **enabled**: Whether the sync is active
+- **archived**: Whether the sync is hidden from the UI
+- **createdAt**: ISO timestamp when the sync was created
+- **lastSyncedAt**: ISO timestamp of the last successful sync operation
 
 ### Repository State (RepoState)
 
@@ -333,6 +403,7 @@ Each repository in the `repos` dictionary contains:
 
 **Core Fields:**
 - **name**: Repository name
+- **syncId**: ID of the sync configuration this repo belongs to
 - **visibility**: `'public' | 'private' | 'internal'`
 - **status**: `'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed' | 'deleted'`
 
@@ -398,10 +469,25 @@ Install GitHub CLI: https://cli.github.com/
 ### "gh gei extension not found"
 Install the extension: `gh extension install github/gh-gei`
 
+### "Token requires SSO authorization"
+Your PAT needs to be authorized for the organization:
+1. Go to GitHub → Settings → Developer settings → Personal access tokens
+2. Find your token and click on it
+3. Under "Organization access", click "Authorize" next to the organization
+4. Complete the SSO authentication flow
+
+### "Fine-grained PAT not supported"
+This tool requires classic Personal Access Tokens. Fine-grained tokens don't support the `X-OAuth-Scopes` header needed for validation.
+
+### "Missing required scopes"
+Ensure your PAT has all required scopes:
+- Source: `repo`, `admin:org`, `workflow`, `admin:repo_hook`
+- Target: `repo`, `admin:org`, `workflow`, `admin:repo_hook`, `delete_repo`
+
 ### "Failed to fetch repositories"
 - Verify your tokens have correct scopes
 - Check that tokens are SSO-authorized for the organization
-- Ensure `GH_SOURCE_ORG` matches the actual organization name
+- Ensure organization name matches exactly
 
 ### Migrations stuck in "queued"
 - GitHub may be rate-limiting or processing other migrations

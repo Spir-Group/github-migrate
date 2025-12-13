@@ -2,8 +2,8 @@
 node_modules
 dist
 logs
-data/migrations-state.json
-data/*.log
+data/
+data-1st/
 tmp
 *.octoshift.log
 *.octoshift.verbose.log
