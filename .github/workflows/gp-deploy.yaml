@@ -1,0 +1,78 @@
+# Do not modify, managed by @ambita/golden
+name: _deploy_workflow
+concurrency: ${{ inputs.environment }}
+
+on:
+  workflow_call:
+    inputs:
+      environment: 
+        required: true
+        type: string
+      ref:
+        required: false
+        type: string
+    secrets:
+      NPM_TOKEN:
+        required: true
+      NEXUS_PASSWORD:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  Deploy:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: cdk/package.json
+          cache: 'npm'
+          cache-dependency-path: cdk/package-lock.json
+
+      - name: Install golden
+        working-directory: cdk
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+          echo "@ambita:registry:https://registry.npmjs.org/" >> .npmrc
+          npm update
+          echo Using golden v$(npx golden --version)
+          npx golden env --env ${{ inputs.environment }}
+          npx golden env --env ${{ inputs.environment }} >> $GITHUB_ENV
+
+
+      - if: env.JAVA_VERSION && env.JAVA_CACHE == 'sbt'
+        name: Setup sbt
+        uses: sbt/setup-sbt@v1
+        
+      - if: env.JAVA_VERSION
+        name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: ${{ env.JAVA_CACHE }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_CDK_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy container stack
+        working-directory: cdk
+        env:
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          npx golden deploy --force --env ${{ inputs.environment }}

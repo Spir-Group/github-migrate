@@ -1,0 +1,8 @@
+*.js
+*.d.ts
+target/**
+node_modules
+.cdk.staging
+cdk.out
+yarn.lock
+cdk.context.json

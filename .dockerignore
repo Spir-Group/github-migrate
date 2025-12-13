@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+data
+data-1st
+logs
+tmp
+*.log
+.env
+.env.*
+*.secrets

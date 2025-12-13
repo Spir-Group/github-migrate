@@ -1,0 +1,12 @@
+{
+  "//": "Do not modify, managed by @ambita/golden",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@ambita/golden": "2.4.6",
+    "aws-cdk": "2.1018.1",
+    "aws-cdk-lib": "2.200.2"
+  }
+}

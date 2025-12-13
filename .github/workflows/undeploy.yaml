@@ -1,0 +1,24 @@
+# Do not modify, managed by @ambita/golden
+name: Undeploy environment
+run-name: Manual undeploy of ${{ inputs.environment }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to destroy
+        type: environment
+        required: true
+      verify:
+        description: Are you sure?
+        type: boolean
+        required: true
+
+jobs:
+  Undeploy:
+    if: inputs.verify == true
+    uses: ./.github/workflows/gp-destroy.yaml
+    with:
+      environment: ${{ inputs.environment }}
+      verify: ${{ inputs.verify }}
+    secrets: inherit

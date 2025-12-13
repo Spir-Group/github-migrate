@@ -1,495 +1,80 @@
-# GitHub Migration Dashboard
+[![](https://core.ambita.com/golden/badge/github-migrate/prod?)](https://core.ambita.com/golden/badge/github-migrate/prod)
 
-Quick and dirty vibe-coded web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
+# GitHub Migrate
+
+Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
 
 ![screenshot](screenshot.png)
 
 ## Features
 
-- **Multi-Sync Support**: Manage multiple source/target organization sync configurations
-- **Real-time Dashboard**: Web interface showing all repositories under migration
-- **Four Background Workers**: Independent Discovery, Status, Migration, and Progress Workers with UI controls
-- **Smart Sync Detection**: Automatically checks if repositories need migration by comparing source and target
-- **Continuous Status Checking**: Status worker runs continuously, checking oldest repos and idling when all are verified within 1 hour
-- **Live Status Updates**: Real-time updates via Server-Sent Events as repositories are checked
-- **Multi-select Filters**: Toggle status filters to show only the repositories you care about
-- **Sortable Columns**: Click column headers to sort by name, status, timestamps, size, or duration
-- **Time Tracking**: Shows elapsed time for active migrations and timestamps for checks and changes
-- **Persistent State**: Progress saved in local JSON file - resume anytime
-- **Migration Logs**: View detailed migration logs with automatic log discovery for synced repos
-- **Error Handling**: Retry/resync failed or synced migrations with automatic target repository deletion
-- **Statistics**: Overview including total size, estimated wall time, and duration metrics
-- **Repository Details**: Rich metadata including description, languages breakdown, size, commits, branches, and GitHub links
-- **Auto-cleanup**: Automatically marks deleted source repos with special status (hidden from UI)
-- **Enhanced UI**: Repository details modal, summary statistics, sortable size/duration columns, collapsible sync section, and improved status indicators
-- **PAT Validation**: Test connection with comprehensive token scope and SSO authorization validation
+- **Multi-Sync Support** – Manage multiple source/target organization sync configurations
+- **Real-time Dashboard** – Live updates via Server-Sent Events
+- **Background Workers** – Discovery, Status, Migration, and Progress workers
+- **Smart Sync Detection** – Compare source and target timestamps automatically
+- **Flexible Storage** – Local JSON file or AWS DynamoDB
 
-## Limitations
+## Running Locally
 
-I add features only as I need them, currently this only handles pure repo syncronization between github.org enterprises. Does not work for pure organizations, does probably not work for ghe.com setups. 
-Does not migrate projects boards, integrations and apps, action secrets, environments and variables, team structure and repo ownership etc.
+### Prerequisites
 
-## Prerequisites
+- Node.js v22+
+- GitHub CLI (`gh`) with GEI extension: `gh extension install github/gh-gei`
 
-1. **Node.js** (v16 or later)
-2. **GitHub CLI** (`gh`): [Install here](https://cli.github.com/)
-3. **GEI Extension**: Install with `gh extension install github/gh-gei`
+### Option 1: Node.js with Local File Storage
 
-## Installation
+State is saved to `data/migrations-state.json` with hourly backups.
 
 ```bash
-# Install dependencies
 npm install
-
-# Build TypeScript
-npm run build
-```
-
-## Configuration
-
-Sync configurations are managed through the web UI. Each sync defines:
-
-- **Name**: A descriptive name for the sync configuration
-- **Source**: Enterprise, organization, optional API URL, and PAT
-- **Target**: Enterprise, organization, optional API URL, and PAT
-
-### PAT Requirements
-
-**Source PAT** (Classic PAT required):
-- Scopes: `repo`, `admin:org`, `workflow`, `admin:repo_hook`
-- Must be SSO-authorized for the source organization
-
-**Target PAT** (Classic PAT required):
-- Scopes: `repo`, `admin:org`, `workflow`, `admin:repo_hook`, `delete_repo`
-- Must be SSO-authorized for the target organization
-
-**Note**: Fine-grained PATs are not supported. Use classic Personal Access Tokens.
-
-### API URLs
-
-Leave the API URL empty for github.com organizations. For GitHub Enterprise Server, provide the API URL (e.g., `https://ghes.example.com/api/v3`).
-
-## Usage
-
-### Development Mode (with auto-reload)
-
-```bash
 npm run dev
 ```
 
-### Production Mode
+### Option 2: Docker with Local File Storage
+
+Build and run with the `data/` directory mounted for persistence.
 
 ```bash
-npm run build
-npm start
+npm run docker:build
+npm run docker:run
 ```
 
-### Command Line Options
+Or manually:
 
 ```bash
-# Custom port
-npm start -- --port 4000
-
-# Custom polling interval (in seconds)
-npm start -- --poll-seconds 30
-
-# Show help
-npm start -- --help
+docker build -t github-migrate ./dist
+docker run --rm -p 3000:3000 -v $(pwd)/data:/app/data github-migrate
 ```
 
-## How It Works
+### Option 3: Local with DynamoDB
 
-### Architecture
+Connect to AWS DynamoDB by setting environment variables:
 
-The application uses five independent components:
-
-1. **Main Thread (Web Server)**: 
-   - Web server starts immediately at `http://localhost:3000`
-   - Loads existing state from `data/migrations-state.json` (if exists)
-   - Serves the dashboard UI and API endpoints
-   - Manages sync configurations (add, edit, copy, archive)
-   
-2. **Discovery Worker** (Background Thread):
-   - Performs repository discovery from source organizations
-   - Runs on-demand when triggered via the Discover button
-   - Adds any new repositories with `unknown` status
-   - Runs for each enabled sync configuration
-   
-3. **Status Worker** (Background Thread):
-   - **Runs continuously** checking repositories one at a time
-   - **Prioritizes all `unknown` repos first** (checks all of them sequentially)
-   - After unknowns, checks oldest repos not verified in the last 60 minutes
-   - **Idles for 1 minute** when all repos have been checked within the hour
-   - Compares `pushed_at` timestamps between source and target repositories
-   - Marks repos as **UNSYNCED** if target is missing or has older commits
-   - Marks repos as **SYNCED** if target is up to date
-   - **Fetches and updates metadata** (description, languages, size, commits, branches) on every check
-   - Works across all enabled sync configurations
-   - Can be started/stopped via the dashboard UI
-   - Shows currently checking repository in real-time
-   
-4. **Migration Worker** (Background Thread):
-   - Queues migrations for unsynced repositories using `gh gei migrate-repo --queue-only`
-   - Enforces max 10 concurrent queued repos to prevent overwhelming GitHub API
-   - Automatically pauses queueing when limit reached, resumes after 30 seconds
-   - Queues all available unsynced repos in each run (subject to concurrency limit)
-   - Checks every 30 seconds for new unsynced repos
-   - Automatically deletes target repository if "already contains" error occurs
-   - Works across all enabled sync configurations
-   - Can be started/stopped via the dashboard UI
-   - Shows currently queueing repository in real-time
-   
-5. **Progress Worker** (Background Thread):
-   - Monitors in-progress migrations (queued and syncing)
-   - Polls GitHub API every 60 seconds to check migration progress
-   - Updates repository status as migrations complete
-   - Automatically downloads migration logs when completed (success or failure)
-   - Works across all enabled sync configurations
-   - Shows currently checking repository in real-time
-   - Detects stale migrations (running >1 minute with status not found)
-   - Marks stale migrations as `unknown` with error message
-   - Does not check repos with `unknown`, `synced`, or `failed` status
-   - Runs automatically on startup
-   - Can be started/stopped via the dashboard UI
-
-### Status Tracking
-
-The dashboard uses a simplified 7-status system with color-coding:
-
-- **UNKNOWN** (Yellow): Status not yet checked
-- **UNSYNCED** (Yellow): Repository needs migration (target missing or out of date)
-- **QUEUED** (Blue): Migration queued with GitHub but not started
-- **SYNCING** (Blue): Migration in progress (exporting, importing, etc.)
-- **SYNCED** (Green): Repository successfully synced and up to date
-- **FAILED** (Red): Migration failed ❌
-- **DELETED** (Hidden): Repository no longer exists in source organization
-
-All GitHub migration API statuses are automatically mapped to these states for a consistent, easy-to-understand view. Deleted repositories are automatically filtered out of the UI but remain in state for historical tracking.
-
-### Worker Control
-
-All four workers can be independently controlled from the dashboard:
-- **Discovery Worker**: Discovers new repositories from source organizations
-- **Status Worker**: Determines which repositories need syncing
-- **Migration Worker**: Queues up to 10 migrations concurrently
-- **Progress Worker**: Monitors in-progress migrations (auto-starts on startup)
-- Start/stop any worker at any time
-- Workers run concurrently without interference
-- Live status shown for each worker
-
-### Real-time Updates
-
-- Updates broadcast via Server-Sent Events
-- Dashboard updates automatically without page refresh
-- Shows live progress of both workers
-- Active migration polling configurable (default: 60 seconds)
-
-### Persistence
-
-- State changes are debounced and written to `data/migrations-state.json` every 10 seconds
-- On graceful shutdown (Ctrl-C), all pending changes are flushed immediately
-- Hourly automatic backups to `data/backups/` (keeps last 24)
-- Stop and restart anytime - progress is preserved
-- Workers remember their state across restarts
-
-**Data Safety:**
-- Atomic writes prevent corruption (temp file + rename)
-- Up to 10 seconds of changes could be lost in a hard crash (kill -9, power loss)
-- Backups provide hourly recovery points
-
-**Restore from backup:**
 ```bash
-cp data/backups/migrations-state-YYYY-MM-DD-HH-mm.json data/migrations-state.json
+export DYNAMODB_TABLE=github-migrate-state-dev
+export SSM_PATS_PARAMETER=/container/github-migrate/dev/secrets/github-pats
+npm run dev
 ```
 
-## Dashboard
+Dashboard: http://localhost:3000
 
-Access the dashboard at `http://localhost:3000` (or your custom port).
+## Production (AWS)
 
-### Sync Configuration Management
+Deployed via Golden Path to `https://github-migrate.ambita.com` (SSO protected).
 
-The dashboard header includes a collapsible "Sync Configurations" section for managing multiple source/target organization pairs:
+- **State**: DynamoDB with point-in-time recovery
+- **Secrets**: SSM Parameter Store (SecureString)
+- **Auth**: Entra ID SSO via OIDC
 
-**Add Sync**: Click "+ Add Sync" to create a new sync configuration:
-- Enter a descriptive name
-- Configure source and target: enterprise, organization, optional API URL, and PAT
-- Use "Test Connection" to validate tokens before saving
-- Validation checks token scopes, organization access, and SSO authorization
+## Documentation
 
-**Sync Cards**: Each sync configuration is displayed as a card showing:
-- Sync name and status (enabled/disabled badge)
-- Source and target organizations
-- Repository count and sync progress
-- Last synced timestamp
-- Action buttons: Edit, Discover, Copy, Archive
+Full documentation in [TechDocs](https://spirgroup.dev/catalog/spir/component/github-migrate/docs):
 
-**Edit Sync**: Modify existing configurations. Re-enabling an archived sync automatically unarchives it.
+- [Architecture](docs/architecture.md) – System design and components
+- [Usage Guide](docs/usage.md) – Dashboard and worker controls
+- [API Reference](docs/api.md) – REST endpoints and data models
+- [Troubleshooting](docs/ops/troubleshooting.md) – Common issues and solutions
 
-**Copy Sync**: Duplicate a sync configuration with PATs preserved server-side. Useful for creating similar configurations.
+## License
 
-**Discover**: Trigger repository discovery for a specific sync configuration.
-
-**Archive**: Hide a sync configuration and its repositories from the main view.
-
-**Test Connection**: Validates both source and target PATs:
-1. Token validity and required scopes
-2. Organization access
-3. Repository API access
-4. SSO authorization (with clickable authorization links if needed)
-
-### Worker Controls
-
-Four independent workers in the header:
-
-**Status Worker**:
-- Shows current repository being checked (or "Running (idle)" or "Stopped")
-- Start/Stop button to control the worker
-- Runs every hour
-- Checks ALL unknown repos first, then 5 oldest repos per run
-
-**Migration Worker**:
-- Shows currently queueing repository (or "Running (idle)" or "Stopped")
-- Start/Stop button to control the worker
-- Queues all available unsynced repos
-
-**Progress Worker**:
-- Shows current repository being checked (or "Running (idle)" or "Stopped")
-- Start/Stop button to control the worker
-- Monitors all in-progress migrations (auto-starts on startup)
-- Polls every 60 seconds
-- Automatically downloads logs when migrations complete
-- Detects and marks stale migrations as unknown
-
-### Summary Statistics
-
-**Migration Overview:**
-- **Synced up to**: When the least recently checked repo was last verified (shows data freshness)
-- **Total size**: Combined size of all repositories
-- **Total duration**: Sum of all completed migration times
-- **Est. wall time (10 in parallel)**: Estimated time for all migrations to complete
-- **Duration/MB**: Average migration speed
-
-**Repository Counts:**
-- Total repositories (excluding deleted)
-- Unsynced (need migration)
-- Queued for migration
-- Syncing (migration in progress)
-- Synced (up to date)
-- Failed
-- Unknown
-
-### Interactive Filters
-
-**Status Filters:**
-- Click any status pill to toggle it on/off
-- Click stat boxes (Total, Unsynced, etc.) to instantly filter by that status
-- Multiple filters can be active simultaneously
-- Filter by: UNSYNCED, QUEUED, SYNCING, SYNCED, FAILED, UNKNOWN
-
-**Repository Name Filter:**
-- Text input on the right side of filters
-- Case-insensitive search
-- Matches partial repository names
-- Works in combination with status filters
-
-### Repository Table
-Sortable columns (click headers):
-- **Repository**: Name of the repository
-- **Status**: Current sync/migration status (color-coded pills)
-- **Updated**: When the status last changed (default sort, newest first)
-- **Checked**: When the sync status was last verified
-- **Synced**: When the repository entered syncing status (blank for queued repos)
-- **Commit**: When repository was last pushed to (yyyy-mm-dd format)
-- **Size**: Repository size (formatted as KB/MB/GB)
-- **Duration**: Time spent on migration (only ticks for actively syncing repos, shows final time for completed)
-- **Actions**: Buttons for managing repository migrations
-
-**Action Buttons**:
-- **Details** (All repos): View comprehensive repository details including description, languages breakdown, size, commits, branches, and links to source/target repos
-- **Resync** (Synced repos): Requeue a synced repository for migration (non-blocking operation)
-- **Retry** (Failed repos): Retry a failed migration. Automatically deletes the target repository if it was partially created.
-- **Errors** (Failed repos): View detailed error message for a failed migration
-- **Logs** (Synced/Failed repos): View detailed migration logs
-
-## API Endpoints
-
-### General
-- `GET /`: Dashboard HTML
-- `GET /api/state`: Current migration state (JSON)
-- `GET /api/logs/:repo`: Migration logs for a specific repository
-- `POST /api/repos/:repo/retry`: Retry a failed migration (deletes target repo if needed)
-- `POST /api/logs/:repo/download`: Attempt to download and find logs for a synced repository
-- `GET /events`: Server-Sent Events stream for real-time updates
-
-### Sync Configuration
-- `GET /api/syncs`: List all sync configurations
-- `POST /api/syncs`: Create a new sync configuration
-- `GET /api/syncs/:id`: Get a specific sync configuration
-- `PUT /api/syncs/:id`: Update a sync configuration
-- `DELETE /api/syncs/:id`: Archive a sync configuration
-- `POST /api/syncs/:id/validate`: Test connection for a sync configuration
-- `POST /api/syncs/:id/discover`: Trigger repository discovery for a sync
-
-### Status Worker
-- `GET /api/status-worker`: Get worker status `{ running: boolean, currentRepo: string | null }`
-- `POST /api/status-worker/start`: Start the Status Worker
-- `POST /api/status-worker/stop`: Stop the Status Worker
-
-### Migration Worker
-- `GET /api/migration-worker`: Get worker status `{ running: boolean, currentRepo: string | null }`
-- `POST /api/migration-worker/start`: Start the Migration Worker
-- `POST /api/migration-worker/stop`: Stop the Migration Worker
-
-### Progress Worker
-- `GET /api/progress-worker`: Get worker status `{ running: boolean, currentRepo: string | null }`
-- `POST /api/progress-worker/start`: Start the Progress Worker
-- `POST /api/progress-worker/stop`: Stop the Progress Worker
-
-## Code Structure
-
-```
-src/
-├── workers/              # Independent worker modules
-│   ├── discoveryWorker.ts   # Repository discovery
-│   ├── statusWorker.ts      # Status checking
-│   ├── migrationWorker.ts   # Migration queueing
-│   └── progressWorker.ts    # Progress monitoring
-├── ui/                   # Frontend files
-│   ├── index.html
-│   ├── app.js
-│   └── styles.css
-├── server.ts            # Main server and worker coordination
-├── config.ts            # Configuration and PAT validation
-├── state.ts             # State management with multi-sync support
-├── types.ts             # Shared TypeScript types
-├── migration.ts         # Migration helper functions
-├── github.ts            # GitHub API interactions
-└── logs.ts              # Log retrieval
-
-data/
-├── migrations-state.json  # Persistent state (git-ignored)
-├── usermap.csv            # User mapping file for migrations
-├── backups/               # Hourly state backups
-└── *.log                  # Downloaded migration logs
-
-tmp/                     # Temporary files
-```
-
-## Data Model
-
-The application stores migration state in `data/migrations-state.json`. The state includes:
-
-### Global State
-- **version**: Schema version (currently 2)
-- **syncs**: Dictionary of sync configurations keyed by sync ID
-- **repos**: Dictionary of repository states keyed by repository name
-
-### Sync Configuration (SyncConfig)
-
-Each sync in the `syncs` dictionary contains:
-
-- **id**: Unique identifier (UUID)
-- **name**: Human-readable name for the sync
-- **source**: Source configuration (enterprise, org, host, url, token)
-- **target**: Target configuration (enterprise, org, host, url, token)
-- **enabled**: Whether the sync is active
-- **archived**: Whether the sync is hidden from the UI
-- **createdAt**: ISO timestamp when the sync was created
-- **lastSyncedAt**: ISO timestamp of the last successful sync operation
-
-### Repository State (RepoState)
-
-Each repository in the `repos` dictionary contains:
-
-**Core Fields:**
-- **name**: Repository name
-- **syncId**: ID of the sync configuration this repo belongs to
-- **visibility**: `'public' | 'private' | 'internal'`
-- **status**: `'unknown' | 'unsynced' | 'queued' | 'syncing' | 'synced' | 'failed' | 'deleted'`
-
-**Migration Tracking:**
-- **migrationId**: GitHub migration ID (if migration was started)
-- **queuedAt**: ISO timestamp when migration was queued
-- **startedAt**: ISO timestamp when repo entered 'syncing' status
-- **endedAt**: ISO timestamp when migration completed or failed
-- **elapsedSeconds**: Total migration duration in seconds (calculated when completed)
-
-**Status Tracking:**
-- **lastUpdate**: ISO timestamp of last status change
-- **lastPolledAt**: ISO timestamp of last progress check
-- **lastChecked**: ISO timestamp when sync status was last verified (comparing source/target)
-- **lastPushed**: ISO timestamp of last commit in source repository
-
-**Error Handling:**
-- **errorMessage**: Error message if migration failed
-
-**Logs:**
-- **logs.cached**: Boolean indicating if migration logs are cached locally
-- **logs.cacheDir**: Directory containing cached logs
-- **logs.lastFetchedAt**: ISO timestamp when logs were last fetched
-
-**Metadata** (fetched during status checks):
-- **metadata.description**: Repository description
-- **metadata.primaryLanguage**: Main programming language
-- **metadata.languages**: Array of `{ name: string, size: number }` for all languages
-- **metadata.size**: Repository size in kilobytes
-- **metadata.commitCount**: Number of commits
-- **metadata.branchCount**: Number of branches
-- **metadata.archived**: Boolean indicating if repository is archived
-
-### Status Flow
-
-```
-unknown → unsynced → queued → syncing → synced
-                                   ↓
-                                failed
-```
-
-- **unknown**: Initial state, not yet checked
-- **unsynced**: Target missing or out of date (needs migration)
-- **queued**: Migration queued with GitHub but not started
-- **syncing**: Migration in progress
-- **synced**: Migration completed successfully, target up to date
-- **failed**: Migration failed (can be retried)
-- **deleted**: Source repository no longer exists (hidden from UI)
-
-## Graceful Shutdown
-
-Press `Ctrl+C` to stop the server. It will:
-1. Stop polling
-2. Save current state
-3. Close all client connections
-4. Exit cleanly
-
-## Troubleshooting
-
-### "gh CLI not found"
-Install GitHub CLI: https://cli.github.com/
-
-### "gh gei extension not found"
-Install the extension: `gh extension install github/gh-gei`
-
-### "Token requires SSO authorization"
-Your PAT needs to be authorized for the organization:
-1. Go to GitHub → Settings → Developer settings → Personal access tokens
-2. Find your token and click on it
-3. Under "Organization access", click "Authorize" next to the organization
-4. Complete the SSO authentication flow
-
-### "Fine-grained PAT not supported"
-This tool requires classic Personal Access Tokens. Fine-grained tokens don't support the `X-OAuth-Scopes` header needed for validation.
-
-### "Missing required scopes"
-Ensure your PAT has all required scopes:
-- Source: `repo`, `admin:org`, `workflow`, `admin:repo_hook`
-- Target: `repo`, `admin:org`, `workflow`, `admin:repo_hook`, `delete_repo`
-
-### "Failed to fetch repositories"
-- Verify your tokens have correct scopes
-- Check that tokens are SSO-authorized for the organization
-- Ensure organization name matches exactly
-
-### Migrations stuck in "queued"
-- GitHub may be rate-limiting or processing other migrations
-- Check the logs for specific errors
-- Verify network connectivity to GitHub API
+Internal use only.

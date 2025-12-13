@@ -1,0 +1,22 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  namespace: spir
+  name: github-migrate
+  title: GitHub Migrate
+  description: |
+    Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
+    Features multi-sync support, real-time dashboard, background workers for discovery, status checking,
+    migration queueing, and progress monitoring.
+  annotations:
+    github.com/project-slug: Spir-Group/github-migrate
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - typescript
+    - nodejs
+    - github
+spec:
+  type: service
+  lifecycle: production
+  owner: spir/plattform
+  system: system:spir/github

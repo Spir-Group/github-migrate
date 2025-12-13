@@ -1,6 +1,10 @@
 import { spawn } from 'child_process';
+import { existsSync } from 'fs';
 import { HostConfig } from './config';
-import { RepoVisibility } from './state';
+import { RepoVisibility } from './types';
+
+// Path to the gei binary when running in container
+const GEI_BINARY_PATH = '/app/.local/share/gh/extensions/gh-gei/gh-gei';
 
 export interface Repository {
   name: string;
@@ -137,13 +141,62 @@ export async function checkGhCli(): Promise<boolean> {
   }
 }
 
+/**
+ * Check if gei is available - either as direct binary or gh extension
+ */
 export async function checkGeiExtension(): Promise<boolean> {
+  // First check if direct binary exists (container mode)
+  if (existsSync(GEI_BINARY_PATH)) {
+    try {
+      const result = await runGei(['--help']);
+      return result.code === 0;
+    } catch {
+      return false;
+    }
+  }
+  // Fallback to gh extension
   try {
     const result = await runGh(['gei', '--help']);
     return result.code === 0;
   } catch {
     return false;
   }
+}
+
+/**
+ * Run the gei command - uses direct binary if available, otherwise gh extension
+ */
+export async function runGei(args: string[], envExtra?: Record<string, string>): Promise<{ stdout: string; stderr: string; code: number }> {
+  // Use direct binary if it exists (container mode)
+  if (existsSync(GEI_BINARY_PATH)) {
+    return new Promise((resolve) => {
+      const env = { ...process.env, ...envExtra };
+      const child = spawn(GEI_BINARY_PATH, args, { env });
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code) => {
+        resolve({ stdout, stderr, code: code || 0 });
+      });
+
+      child.on('error', (error) => {
+        stderr += error.message;
+        resolve({ stdout, stderr, code: 1 });
+      });
+    });
+  }
+  
+  // Fallback to gh gei extension
+  return runGh(['gei', ...args], envExtra);
 }
 
 export interface OrgAccessResult {

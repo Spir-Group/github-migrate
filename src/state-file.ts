@@ -14,7 +14,9 @@ import { loadAndMigrateState } from './migration';
 
 export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig };
 
-const STATE_FILE = path.join(process.cwd(), 'data', 'migrations-state.json');
+// Use DATA_DIR env var if set, otherwise default to ./data
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const STATE_FILE = path.join(DATA_DIR, 'migrations-state.json');
 const DEBOUNCE_MS = 10000; // 10 seconds
 
 let writeMutex = Promise.resolve();

@@ -1,7 +1,4 @@
-import * as dotenv from 'dotenv';
 import { SyncRuntimeConfig, HostConfig } from './types';
-
-dotenv.config();
 
 // Re-export types for backwards compatibility
 export type { SyncRuntimeConfig, HostConfig };

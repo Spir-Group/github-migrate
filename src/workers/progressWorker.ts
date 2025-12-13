@@ -1,5 +1,5 @@
 import { SyncRuntimeConfig } from '../types';
-import * as state from '../state';
+import * as state from '../state-index';
 import { getMigrationStatus } from '../github';
 import { downloadLogsById } from '../logs';
 
@@ -50,7 +50,7 @@ async function pollSingleRepo(
       
       if (elapsedMs > 60000) {
         console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000)}s without migration ID, marking as unknown`);
-        state.setStatus(repo.id, 'unknown', 'Migration status lost - may have completed or failed');
+        await state.setStatus(repo.id, 'unknown', 'Migration status lost - may have completed or failed');
         if (onUpdate) onUpdate();
       }
     }
@@ -68,7 +68,7 @@ async function pollSingleRepo(
         
         if (elapsedMs > 60000) {
           console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} migration not found after ${Math.round(elapsedMs / 1000)}s, marking as unknown`);
-          state.setStatus(repo.id, 'unknown', 'Migration status not found - may have completed or failed');
+          await state.setStatus(repo.id, 'unknown', 'Migration status not found - may have completed or failed');
           if (onUpdate) onUpdate();
         }
       }
@@ -76,7 +76,7 @@ async function pollSingleRepo(
     }
 
     const now = new Date().toISOString();
-    state.upsertRepo(repo.id, {
+    await state.upsertRepo(repo.id, {
       lastPolledAt: now,
       lastChecked: now
     });
@@ -90,10 +90,10 @@ async function pollSingleRepo(
         console.log(`[${new Date().toISOString()}] Progress worker: ${repo.name}: ${repo.status} -> ${newStatus}`);
       }
       
-      state.setStatus(repo.id, newStatus, status.failureReason);
+      await state.setStatus(repo.id, newStatus, status.failureReason);
       
-      // Download logs when migration completes
-      if ((newStatus === 'synced' || newStatus === 'failed') && !repo.logs?.cached) {
+      // Download logs when migration completes (skip in container mode - no local filesystem)
+      if ((newStatus === 'synced' || newStatus === 'failed') && !repo.logs?.cached && !process.env.DYNAMODB_TABLE) {
         try {
           await downloadLogsById(repo.id);
         } catch (error) {

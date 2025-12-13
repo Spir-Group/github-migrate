@@ -1,5 +1,5 @@
 import { SyncRuntimeConfig } from '../types';
-import * as state from '../state';
+import * as state from '../state-index';
 import { needsMigration, getRepoMetadata } from '../github';
 
 /**
@@ -85,7 +85,7 @@ async function recheckRepoStatus(
     
     const newStatus = result.needs ? 'unsynced' : 'synced';
     
-    state.upsertRepo(repo.id, {
+    await state.upsertRepo(repo.id, {
       status: newStatus,
       lastChecked: now,
       lastPushed: result.lastPushed,

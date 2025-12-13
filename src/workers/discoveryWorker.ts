@@ -1,5 +1,5 @@
 import { SyncRuntimeConfig } from '../types';
-import * as state from '../state';
+import * as state from '../state-index';
 import { fetchRepositories } from '../github';
 
 /**
@@ -24,7 +24,7 @@ export async function discoverRepositoriesForSync(
   const syncRepos = state.listActiveBySyncId(config.id);
   for (const stateRepo of syncRepos) {
     if (!sourceRepoNames.has(stateRepo.name) && stateRepo.status !== 'deleted') {
-      state.archiveRepo(stateRepo.id);
+      await state.archiveRepo(stateRepo.id);
       archivedRepoCount++;
       console.log(`[${new Date().toISOString()}] Archived ${stateRepo.name} (no longer in source)`);
     }
@@ -34,7 +34,7 @@ export async function discoverRepositoriesForSync(
   for (const repo of repos) {
     const existing = state.getRepoByName(config.id, repo.name);
     if (!existing) {
-      state.upsertRepoByName(config.id, repo.name, {
+      await state.upsertRepoByName(config.id, repo.name, {
         visibility: repo.visibility,
         status: 'unknown'
       });

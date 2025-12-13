@@ -1,0 +1,20 @@
+# Do not modify, managed by @ambita/golden
+name: Autodeploy
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'doc/**'
+      - 'docs/**'
+      - '*.md'
+      - 'catalog-info.yaml'
+
+jobs:
+  Autodeploy:
+    uses: ./.github/workflows/gp-deploy.yaml
+    with:
+      environment: dev
+      ref: ${{ github.ref }}
+    secrets: inherit

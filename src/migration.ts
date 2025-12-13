@@ -8,8 +8,10 @@ import {
   RepoState 
 } from './types';
 
-const STATE_FILE = path.join(process.cwd(), 'data', 'migrations-state.json');
-const BACKUP_FILE = path.join(process.cwd(), 'data', 'migrations-state.pre-migration.json');
+// Use DATA_DIR env var if set, otherwise default to ./data
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+const STATE_FILE = path.join(DATA_DIR, 'migrations-state.json');
+const BACKUP_FILE = path.join(DATA_DIR, 'migrations-state.pre-migration.json');
 
 /**
  * Check if the state file is in the legacy format

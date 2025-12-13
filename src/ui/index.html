@@ -161,7 +161,7 @@
                 <button class="close-btn" onclick="closeSyncModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <form id="sync-form" onsubmit="saveSyncConfig(event)">
+                <form id="sync-form" onsubmit="saveSyncConfig(event)" autocomplete="off">
                     <input type="hidden" id="sync-id" value="">
                     
                     <div class="form-group">
@@ -186,7 +186,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="source-token">Personal Access Token *</label>
-                                <input type="password" id="source-token" required placeholder="ghp_...">
+                                <input type="password" id="source-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
                                 <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>. Must be SSO-authorized for the organization.</p>
                             </div>
                             <div id="source-validation-result" class="column-validation-result"></div>
@@ -207,7 +207,7 @@
                             </div>
                             <div class="form-group">
                                 <label for="target-token">Personal Access Token *</label>
-                                <input type="password" id="target-token" required placeholder="ghp_...">
+                                <input type="password" id="target-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
                                 <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>, <code>delete_repo</code>. Must be SSO-authorized for the organization.</p>
                             </div>
                             <div id="target-validation-result" class="column-validation-result"></div>

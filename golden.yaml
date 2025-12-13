@@ -1,0 +1,12 @@
+component: github-migrate
+system: github
+team: plattform
+domain: platform
+autodeploy: true
+
+java:
+  appType: custom
+  buildCommand: npm run docker:prepare
+
+stages:
+  - name: prod

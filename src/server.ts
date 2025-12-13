@@ -1,10 +1,10 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, Router } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { loadServerConfig, ServerConfig, validateSyncConfig } from './config';
-import * as state from './state';
+import * as state from './state-index';
 import { checkGhCli, checkGeiExtension } from './github';
 import { discoverRepositoriesForSync } from './workers/discoveryWorker';
 import { pollMigrationStatusesForSync } from './workers/progressWorker';
@@ -44,6 +44,11 @@ let migrationWorkerRunning = false;
 let migrationWorkerCurrentRepo: string | null = null;
 let progressWorkerRunning = false;
 let progressWorkerCurrentRepo: string | null = null;
+let healthCheckLogCount = 0;
+
+// Base path for URL routing (for ALB path-based routing)
+const BASE_PATH = process.env.BASE_PATH || '';
+const IS_CONTAINER = !!process.env.DYNAMODB_TABLE;
 
 async function main() {
   console.log(`[${new Date().toISOString()}] GitHub Migration Dashboard starting...`);
@@ -60,12 +65,16 @@ async function main() {
 
   const hasGei = await checkGeiExtension();
   if (!hasGei) {
-    console.error('Error: gh gei extension not found. Please install it: gh extension install github/gh-gei');
-    process.exit(1);
+    if (process.env.SKIP_GEI_CHECK === '1') {
+      console.warn('Warning: gh gei extension not found but SKIP_GEI_CHECK=1, continuing...');
+    } else {
+      console.error('Error: gh gei extension not found. Please install it: gh extension install github/gh-gei');
+      process.exit(1);
+    }
   }
 
   // Initialize state (loads and migrates if needed)
-  state.initState();
+  await state.initState();
 
   // Print banner
   const syncs = state.getActiveSyncs();
@@ -93,8 +102,10 @@ async function main() {
   startProgressWorker();
   startMigrationWorker();
 
-  // Start hourly backup scheduler
-  startBackupScheduler();
+  // Start hourly backup scheduler (only for file-based storage)
+  if (!IS_CONTAINER) {
+    startBackupScheduler();
+  }
 
   // Discover repositories for all enabled syncs
   discoverRepositoriesAsync();
@@ -106,6 +117,7 @@ async function main() {
 
 function startServer() {
   const app = express();
+  const router = Router();
   
   // Parse JSON bodies
   app.use(express.json());
@@ -113,16 +125,61 @@ function startServer() {
   // Serve static files from src/ui
   const uiDir = path.join(process.cwd(), 'src', 'ui');
   
-  app.get('/', (req, res) => {
+  // ==========================================
+  // Health Check Endpoints (Golden Path)
+  // ==========================================
+
+  router.get('/api/health', (_req, res) => {
+    const payload: {
+      status: 'ok' | 'error';
+      timestamp: string;
+      syncs: number;
+      workers: {
+        status: boolean;
+        migration: boolean;
+        progress: boolean;
+      };
+      error?: string;
+      details?: string;
+    } = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      syncs: 0,
+      workers: {
+        status: statusWorkerRunning,
+        migration: migrationWorkerRunning,
+        progress: progressWorkerRunning,
+      },
+    };
+
+    try {
+      payload.syncs = state.getActiveSyncs().length;
+    } catch (error) {
+      payload.status = 'error';
+      payload.error = 'STATE_UNAVAILABLE';
+      payload.details = error instanceof Error ? error.message : String(error);
+    }
+
+    if (healthCheckLogCount < 10) {
+      const callNumber = ++healthCheckLogCount;
+      console.log(
+        `[${new Date().toISOString()}] /api/health call #${callNumber} status=${payload.status} syncs=${payload.syncs}`
+      );
+    }
+
+    res.status(payload.status === 'ok' ? 200 : 503).json(payload);
+  });
+  
+  router.get('/', (req, res) => {
     res.sendFile(path.join(uiDir, 'index.html'));
   });
 
-  app.get('/app.js', (req, res) => {
+  router.get('/app.js', (req, res) => {
     res.type('application/javascript');
     res.sendFile(path.join(uiDir, 'app.js'));
   });
 
-  app.get('/styles.css', (req, res) => {
+  router.get('/styles.css', (req, res) => {
     res.type('text/css');
     res.sendFile(path.join(uiDir, 'styles.css'));
   });
@@ -131,7 +188,7 @@ function startServer() {
   // State API
   // ==========================================
   
-  app.get('/api/state', (req, res) => {
+  router.get('/api/state', (req, res) => {
     const appState = state.getState();
     const includeArchived = req.query.includeArchived === 'true';
     
@@ -160,7 +217,7 @@ function startServer() {
   // ==========================================
   
   // List all syncs
-  app.get('/api/syncs', (req, res) => {
+  router.get('/api/syncs', (req, res) => {
     const includeArchived = req.query.includeArchived === 'true';
     let syncs = state.getAllSyncs();
     
@@ -179,7 +236,7 @@ function startServer() {
   });
 
   // Get single sync
-  app.get('/api/syncs/:id', (req, res) => {
+  router.get('/api/syncs/:id', (req, res) => {
     const sync = state.getSyncConfig(req.params.id);
     if (!sync) {
       return res.status(404).json({ error: 'Sync not found' });
@@ -196,7 +253,7 @@ function startServer() {
   });
 
   // Create new sync
-  app.post('/api/syncs', async (req, res) => {
+  router.post('/api/syncs', async (req, res) => {
     try {
       const { name, source, target, enabled = true, copyFromSyncId } = req.body;
       
@@ -229,7 +286,7 @@ function startServer() {
       const sourceHost = source.url ? new URL(source.url).hostname : 'github.com';
       const targetHost = target.url ? new URL(target.url).hostname : 'github.com';
       
-      const sync = state.createSync({
+      const sync = await state.createSync({
         name,
         source: {
           enterprise: source.enterprise,
@@ -263,7 +320,7 @@ function startServer() {
   });
 
   // Update sync
-  app.put('/api/syncs/:id', async (req, res) => {
+  router.put('/api/syncs/:id', async (req, res) => {
     try {
       const syncId = req.params.id;
       const existingSync = state.getSyncConfig(syncId);
@@ -305,7 +362,7 @@ function startServer() {
         if (req.body.target.token !== undefined) updates.target.token = req.body.target.token;
       }
       
-      const updatedSync = state.updateSync(syncId, updates);
+      const updatedSync = await state.updateSync(syncId, updates);
       await state.saveStateImmediate();
       broadcastStateUpdate();
       
@@ -321,7 +378,7 @@ function startServer() {
   });
 
   // Archive sync (soft delete)
-  app.delete('/api/syncs/:id', async (req, res) => {
+  router.delete('/api/syncs/:id', async (req, res) => {
     try {
       const syncId = req.params.id;
       const sync = state.getSyncConfig(syncId);
@@ -330,7 +387,7 @@ function startServer() {
         return res.status(404).json({ error: 'Sync not found' });
       }
       
-      state.archiveSync(syncId);
+      await state.archiveSync(syncId);
       await state.saveStateImmediate();
       broadcastStateUpdate();
       
@@ -341,7 +398,7 @@ function startServer() {
   });
 
   // Unarchive sync
-  app.post('/api/syncs/:id/unarchive', async (req, res) => {
+  router.post('/api/syncs/:id/unarchive', async (req, res) => {
     try {
       const syncId = req.params.id;
       const sync = state.getSyncConfig(syncId);
@@ -350,7 +407,7 @@ function startServer() {
         return res.status(404).json({ error: 'Sync not found' });
       }
       
-      state.unarchiveSync(syncId);
+      await state.unarchiveSync(syncId);
       await state.saveStateImmediate();
       broadcastStateUpdate();
       
@@ -361,10 +418,10 @@ function startServer() {
   });
 
   // Validate sync credentials
-  app.post('/api/syncs/:id/validate', async (req, res) => {
+  router.post('/api/syncs/:id/validate', async (req, res) => {
     try {
       const syncId = req.params.id;
-      const runtimeConfig = state.getSyncRuntimeConfig(syncId);
+      const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
       
       if (!runtimeConfig) {
         return res.status(404).json({ error: 'Sync not found' });
@@ -378,10 +435,10 @@ function startServer() {
   });
 
   // Trigger discovery for a sync
-  app.post('/api/syncs/:id/discover', async (req, res) => {
+  router.post('/api/syncs/:id/discover', async (req, res) => {
     try {
       const syncId = req.params.id;
-      const runtimeConfig = state.getSyncRuntimeConfig(syncId);
+      const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
       
       if (!runtimeConfig) {
         return res.status(404).json({ error: 'Sync not found' });
@@ -402,7 +459,7 @@ function startServer() {
   // Repo API (now uses ID instead of name)
   // ==========================================
   
-  app.get('/api/repos/:id', (req, res) => {
+  router.get('/api/repos/:id', (req, res) => {
     const repo = state.getRepo(req.params.id);
     if (!repo) {
       return res.status(404).json({ error: 'Repository not found' });
@@ -410,7 +467,7 @@ function startServer() {
     res.json(repo);
   });
 
-  app.post('/api/repos/:id/retry', async (req, res) => {
+  router.post('/api/repos/:id/retry', async (req, res) => {
     const repoId = req.params.id;
     try {
       const repo = state.getRepo(repoId);
@@ -419,12 +476,12 @@ function startServer() {
       }
       
       // Set status to unsynced
-      state.setStatus(repoId, 'unsynced');
+      await state.setStatus(repoId, 'unsynced');
       await state.saveStateImmediate();
       broadcastStateUpdate();
       
       // Queue the specific repo
-      const runtimeConfig = state.getSyncRuntimeConfig(repo.syncId);
+      const runtimeConfig = await state.getSyncRuntimeConfig(repo.syncId);
       if (!runtimeConfig) {
         return res.status(400).json({ error: 'Sync configuration not found' });
       }
@@ -440,7 +497,7 @@ function startServer() {
     }
   });
 
-  app.get('/api/repos/:id/logs', async (req, res) => {
+  router.get('/api/repos/:id/logs', async (req, res) => {
     const repoId = req.params.id;
     try {
       const logs = await getRepoLogsById(repoId);
@@ -451,7 +508,7 @@ function startServer() {
     }
   });
 
-  app.post('/api/repos/:id/logs/download', async (req, res) => {
+  router.post('/api/repos/:id/logs/download', async (req, res) => {
     const repoId = req.params.id;
     try {
       const { downloadLogsById } = await import('./logs');
@@ -466,14 +523,14 @@ function startServer() {
   // Worker API
   // ==========================================
 
-  app.get('/api/status-worker', (req, res) => {
+  router.get('/api/status-worker', (req, res) => {
     res.json({
       running: statusWorkerRunning,
       currentRepo: statusWorkerCurrentRepo
     });
   });
 
-  app.post('/api/status-worker/start', (req, res) => {
+  router.post('/api/status-worker/start', (req, res) => {
     if (!statusWorkerRunning) {
       startStatusWorker();
       res.json({ success: true, running: true });
@@ -482,7 +539,7 @@ function startServer() {
     }
   });
 
-  app.post('/api/status-worker/stop', (req, res) => {
+  router.post('/api/status-worker/stop', (req, res) => {
     if (statusWorkerRunning) {
       stopStatusWorker();
       res.json({ success: true, running: false });
@@ -491,14 +548,14 @@ function startServer() {
     }
   });
 
-  app.get('/api/migration-worker', (req, res) => {
+  router.get('/api/migration-worker', (req, res) => {
     res.json({
       running: migrationWorkerRunning,
       currentRepo: migrationWorkerCurrentRepo
     });
   });
 
-  app.post('/api/migration-worker/start', (req, res) => {
+  router.post('/api/migration-worker/start', (req, res) => {
     if (!migrationWorkerRunning) {
       startMigrationWorker();
       res.json({ success: true, running: true });
@@ -507,7 +564,7 @@ function startServer() {
     }
   });
 
-  app.post('/api/migration-worker/stop', (req, res) => {
+  router.post('/api/migration-worker/stop', (req, res) => {
     if (migrationWorkerRunning) {
       stopMigrationWorker();
       res.json({ success: true, running: false });
@@ -516,14 +573,14 @@ function startServer() {
     }
   });
 
-  app.get('/api/progress-worker', (req, res) => {
+  router.get('/api/progress-worker', (req, res) => {
     res.json({
       running: progressWorkerRunning,
       currentRepo: progressWorkerCurrentRepo
     });
   });
 
-  app.post('/api/progress-worker/start', (req, res) => {
+  router.post('/api/progress-worker/start', (req, res) => {
     if (!progressWorkerRunning) {
       startProgressWorker();
       res.json({ success: true, running: true });
@@ -532,7 +589,7 @@ function startServer() {
     }
   });
 
-  app.post('/api/progress-worker/stop', (req, res) => {
+  router.post('/api/progress-worker/stop', (req, res) => {
     if (progressWorkerRunning) {
       stopProgressWorker();
       res.json({ success: true, running: false });
@@ -545,7 +602,7 @@ function startServer() {
   // Server-Sent Events
   // ==========================================
 
-  app.get('/events', (req, res) => {
+  router.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -562,8 +619,16 @@ function startServer() {
     });
   });
 
+  // Mount the router at BASE_PATH (e.g., /gitmigrate)
+  if (BASE_PATH) {
+    app.use(BASE_PATH, router);
+    console.log(`[${new Date().toISOString()}] Routes mounted at ${BASE_PATH}`);
+  } else {
+    app.use('/', router);
+  }
+
   app.listen(serverConfig.port, () => {
-    console.log(`[${new Date().toISOString()}] Server started on port ${serverConfig.port}`);
+    console.log(`[${new Date().toISOString()}] Server started on port ${serverConfig.port}${BASE_PATH ? ` (base path: ${BASE_PATH})` : ''}`);
   });
 
   // Start heartbeat
@@ -625,7 +690,7 @@ async function runStatusWorkerTick() {
     for (const sync of syncs) {
       if (!statusWorkerRunning) break;
       
-      const runtimeConfig = state.getSyncRuntimeConfig(sync.id);
+      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
       if (!runtimeConfig) continue;
       
       const checkedCount = await checkOldestReposForSync(
@@ -690,7 +755,7 @@ async function runMigrationWorkerTick() {
     for (const sync of syncs) {
       if (!migrationWorkerRunning) break;
       
-      const runtimeConfig = state.getSyncRuntimeConfig(sync.id);
+      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
       if (!runtimeConfig) continue;
       
       while (true) {
@@ -759,7 +824,7 @@ async function runProgressWorkerTick() {
     for (const sync of syncs) {
       if (!progressWorkerRunning) break;
       
-      const runtimeConfig = state.getSyncRuntimeConfig(sync.id);
+      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
       if (!runtimeConfig) continue;
       
       await pollMigrationStatusesForSync(
@@ -791,7 +856,7 @@ async function discoverRepositoriesAsync() {
   
   for (const sync of syncs) {
     try {
-      const runtimeConfig = state.getSyncRuntimeConfig(sync.id);
+      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
       if (!runtimeConfig) continue;
       
       await discoverRepositoriesForSync(runtimeConfig, broadcastStateUpdate);
@@ -802,8 +867,9 @@ async function discoverRepositoriesAsync() {
 }
 
 function startBackupScheduler() {
-  const BACKUP_DIR = path.join(process.cwd(), 'data', 'backups');
-  const STATE_FILE = path.join(process.cwd(), 'data', 'migrations-state.json');
+  const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+  const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+  const STATE_FILE = path.join(DATA_DIR, 'migrations-state.json');
   const MAX_BACKUPS = 24;
 
   if (!fs.existsSync(BACKUP_DIR)) {

@@ -1,0 +1,73 @@
+# Do not modify, managed by @ambita/golden
+name: _destroy_workflow
+concurrency: ${{ inputs.environment }}
+
+on:
+  workflow_call:
+    inputs:
+      environment: 
+        required: true
+        type: string
+      verify:
+        required: false
+        type: boolean
+    secrets:
+      NPM_TOKEN:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  deployments: write
+
+jobs:
+  Destroy:
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    name: Destroy
+    runs-on: ubuntu-latest
+    if: ${{ inputs.verify }} == true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: cdk/package.json
+          cache: 'npm'
+          cache-dependency-path: cdk/package-lock.json
+
+      - name: Install golden
+        working-directory: cdk
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > .npmrc
+          echo "@ambita:registry:https://registry.npmjs.org/" >> .npmrc
+          npm update
+          echo Using golden v$(npx golden --version)
+          npx golden env --env ${{ inputs.environment }}
+          npx golden env --env ${{ inputs.environment }} >> $GITHUB_ENV
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.AWS_CDK_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create helper files for destroy
+        run: |
+          mkdir -p target/docker/stage/
+          touch target/docker/stage/Dockerfile
+
+      - name: Destroy ECS stack
+        working-directory: cdk
+        run: |
+          npx golden destroy --env ${{ inputs.environment }}
+
+      - name: Set environment inactive
+        uses: strumwolf/delete-deployment-environment@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          environment: ${{ inputs.environment }}
+          onlyDeactivateDeployments: true

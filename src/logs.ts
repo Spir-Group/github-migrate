@@ -3,15 +3,21 @@ import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
 import { getMigrationLogUrl } from './github';
-import * as state from './state';
+import * as state from './state-index';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// Use DATA_DIR env var if set, otherwise default to ./data
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
+
+// In container mode (DynamoDB), we don't cache logs to filesystem
+const IS_CONTAINER = !!process.env.DYNAMODB_TABLE;
 
 function getLogFilePath(repo: state.RepoState, sync: state.SyncConfig): string {
   return path.join(DATA_DIR, `${sync.target.enterprise}.${sync.target.org}.${repo.name}.log`);
 }
 
 export function hasLogsById(repoId: string): boolean {
+  if (IS_CONTAINER) return false;
+  
   const repo = state.getRepo(repoId);
   if (!repo) return false;
   
@@ -32,14 +38,15 @@ export async function getRepoLogsById(repoId: string): Promise<string> {
     return 'Sync configuration not found';
   }
   
-  const logFile = getLogFilePath(repo, sync);
-
-  // Check if we have cached logs
-  if (fs.existsSync(logFile)) {
-    return fs.readFileSync(logFile, 'utf8');
+  // In non-container mode, check for cached logs
+  if (!IS_CONTAINER) {
+    const logFile = getLogFilePath(repo, sync);
+    if (fs.existsSync(logFile)) {
+      return fs.readFileSync(logFile, 'utf8');
+    }
   }
 
-  // Download fresh logs
+  // Download fresh logs (streaming, not cached in container mode)
   return await downloadLogsById(repoId);
 }
 
@@ -54,19 +61,12 @@ export async function downloadLogsById(repoId: string): Promise<string> {
     return 'Sync configuration not found';
   }
   
-  const runtimeConfig = state.getSyncRuntimeConfig(repo.syncId);
+  const runtimeConfig = await state.getSyncRuntimeConfig(repo.syncId);
   if (!runtimeConfig) {
     return 'Sync runtime configuration not found';
   }
   
-  const logFile = getLogFilePath(repo, sync);
-  
   try {
-    // Ensure directory exists
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-
     if (!repo.migrationId) {
       const errorMsg = 'No migration ID found for this repository';
       console.error(`[${new Date().toISOString()}] ${errorMsg}`);
@@ -82,20 +82,29 @@ export async function downloadLogsById(repoId: string): Promise<string> {
       return errorMsg;
     }
 
-    // Download the log file
+    // Download the log content
     const logContent = await downloadFromUrl(logUrl);
 
-    // Save the logs
-    fs.writeFileSync(logFile, logContent, 'utf8');
-    
-    // Mark logs as available in state
-    state.upsertRepo(repoId, {
-      logs: {
-        cached: true,
-        lastFetchedAt: new Date().toISOString()
+    // In non-container mode, cache to filesystem
+    if (!IS_CONTAINER) {
+      const logFile = getLogFilePath(repo, sync);
+      
+      // Ensure directory exists
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-    });
-    await state.saveState();
+
+      fs.writeFileSync(logFile, logContent, 'utf8');
+      
+      // Mark logs as cached in state
+      await state.upsertRepo(repoId, {
+        logs: {
+          cached: true,
+          lastFetchedAt: new Date().toISOString()
+        }
+      });
+      await state.saveState();
+    }
 
     return logContent;
   } catch (error) {

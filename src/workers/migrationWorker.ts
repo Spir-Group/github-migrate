@@ -1,8 +1,6 @@
 import { SyncRuntimeConfig } from '../types';
-import * as state from '../state';
-import { runGh, extractMigrationId } from '../github';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as state from '../state-index';
+import { runGei, extractMigrationId } from '../github';
 
 const MAX_CONCURRENT_QUEUED = 10;
 
@@ -60,7 +58,7 @@ export async function queueSingleRepoForSync(
 ): Promise<void> {
   try {
     const args = [
-      'gei', 'migrate-repo',
+      'migrate-repo',
       '--github-source-org', config.source.org,
       '--source-repo', repo.name,
       '--github-target-org', config.target.org,
@@ -82,14 +80,16 @@ export async function queueSingleRepoForSync(
     // Try to set target visibility
     args.push('--target-repo-visibility', repo.visibility);
 
-    const result = await runGh(args);
+    const result = await runGei(args);
 
-    // Clean up octopath log files
-    await cleanupOctopathLogs();
+    // Clean up octopath log files (only in non-container mode)
+    if (!process.env.DYNAMODB_TABLE) {
+      await cleanupOctopathLogs();
+    }
 
     if (result.code !== 0) {
       console.error(`[${new Date().toISOString()}] Failed to queue ${repo.name}: ${result.stderr}`);
-      state.setStatus(repo.id, 'failed', result.stderr);
+      await state.setStatus(repo.id, 'failed', result.stderr);
       return;
     }
 
@@ -103,7 +103,7 @@ export async function queueSingleRepoForSync(
       } else {
         const errorMsg = `Failed to delete existing target repository. Original error: ${result.stdout}`;
         console.error(`[${new Date().toISOString()}] ${errorMsg}`);
-        state.setStatus(repo.id, 'failed', errorMsg);
+        await state.setStatus(repo.id, 'failed', errorMsg);
         return;
       }
     }
@@ -113,12 +113,12 @@ export async function queueSingleRepoForSync(
     if (!migrationId) {
       console.error(`[${new Date().toISOString()}] Could not extract migration ID for ${repo.name}`);
       const errorMsg = `Could not extract migration ID from output\n${result.stdout}`;
-      state.setStatus(repo.id, 'failed', errorMsg);
+      await state.setStatus(repo.id, 'failed', errorMsg);
       return;
     }
 
     const now = new Date().toISOString();
-    state.upsertRepo(repo.id, {
+    await state.upsertRepo(repo.id, {
       migrationId,
       status: 'queued',
       queuedAt: now,
@@ -130,7 +130,7 @@ export async function queueSingleRepoForSync(
     console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repo.name}`);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error queueing ${repo.name}:`, error);
-    state.setStatus(repo.id, 'failed', String(error));
+    await state.setStatus(repo.id, 'failed', String(error));
   }
 }
 
@@ -163,7 +163,14 @@ async function deleteTargetRepository(config: SyncRuntimeConfig, repoName: strin
 }
 
 async function cleanupOctopathLogs(): Promise<void> {
+  // Skip cleanup in container mode (read-only filesystem)
+  if (process.env.DYNAMODB_TABLE) {
+    return;
+  }
+  
   try {
+    const fs = await import('fs');
+    const path = await import('path');
     const cwd = process.cwd();
     const files = fs.readdirSync(cwd);
     const octopathLogs = files.filter(file => file.includes('octoshift') && file.endsWith('.log'));
