@@ -34,7 +34,7 @@ new Service(stack, cfg, {
   endpoints: [{
     alb: 'api',
     host: 'github-migrate.ambita.com',
-    priority: 160,
+    priority: 161,
     dns: true,
     sso: true,
     oidc: {
