@@ -2,23 +2,37 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
-import { Config } from './config';
 import { getMigrationLogUrl } from './github';
 import * as state from './state';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
-const TMP_DIR = path.join(process.cwd(), 'tmp');
 
-function getLogFilePath(config: Config, repoName: string): string {
-  return path.join(DATA_DIR, `${config.target.enterprise}.${config.target.org}.${repoName}.log`);
+function getLogFilePath(repo: state.RepoState, sync: state.SyncConfig): string {
+  return path.join(DATA_DIR, `${sync.target.enterprise}.${sync.target.org}.${repo.name}.log`);
 }
 
-export function hasLogs(config: Config, repoName: string): boolean {
-  return fs.existsSync(getLogFilePath(config, repoName));
+export function hasLogsById(repoId: string): boolean {
+  const repo = state.getRepo(repoId);
+  if (!repo) return false;
+  
+  const sync = state.getSyncConfig(repo.syncId);
+  if (!sync) return false;
+  
+  return fs.existsSync(getLogFilePath(repo, sync));
 }
 
-export async function getRepoLogs(config: Config, repoName: string): Promise<string> {
-  const logFile = getLogFilePath(config, repoName);
+export async function getRepoLogsById(repoId: string): Promise<string> {
+  const repo = state.getRepo(repoId);
+  if (!repo) {
+    return 'Repository not found';
+  }
+  
+  const sync = state.getSyncConfig(repo.syncId);
+  if (!sync) {
+    return 'Sync configuration not found';
+  }
+  
+  const logFile = getLogFilePath(repo, sync);
 
   // Check if we have cached logs
   if (fs.existsSync(logFile)) {
@@ -26,28 +40,41 @@ export async function getRepoLogs(config: Config, repoName: string): Promise<str
   }
 
   // Download fresh logs
-  return await downloadLogs(config, repoName);
+  return await downloadLogsById(repoId);
 }
 
-export async function downloadLogs(config: Config, repoName: string): Promise<string> {
-  const logFile = getLogFilePath(config, repoName);
+export async function downloadLogsById(repoId: string): Promise<string> {
+  const repo = state.getRepo(repoId);
+  if (!repo) {
+    return 'Repository not found';
+  }
+  
+  const sync = state.getSyncConfig(repo.syncId);
+  if (!sync) {
+    return 'Sync configuration not found';
+  }
+  
+  const runtimeConfig = state.getSyncRuntimeConfig(repo.syncId);
+  if (!runtimeConfig) {
+    return 'Sync runtime configuration not found';
+  }
+  
+  const logFile = getLogFilePath(repo, sync);
   
   try {
-    // Ensure directories exist
+    // Ensure directory exists
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
 
-    // Get the repo to find its migration ID
-    const repo = state.getRepo(repoName);
-    if (!repo || !repo.migrationId) {
+    if (!repo.migrationId) {
       const errorMsg = 'No migration ID found for this repository';
       console.error(`[${new Date().toISOString()}] ${errorMsg}`);
       return errorMsg;
     }
 
     // Get the log URL from the API
-    const logUrl = await getMigrationLogUrl(config.target, repo.migrationId);
+    const logUrl = await getMigrationLogUrl(runtimeConfig.target, repo.migrationId);
     
     if (!logUrl) {
       const errorMsg = 'Migration log URL not available';
@@ -55,14 +82,14 @@ export async function downloadLogs(config: Config, repoName: string): Promise<st
       return errorMsg;
     }
 
-    // Download the log file from the URL
+    // Download the log file
     const logContent = await downloadFromUrl(logUrl);
 
     // Save the logs
     fs.writeFileSync(logFile, logContent, 'utf8');
     
     // Mark logs as available in state
-    state.upsertRepo(repoName, {
+    state.upsertRepo(repoId, {
       logs: {
         cached: true,
         lastFetchedAt: new Date().toISOString()
@@ -88,14 +115,12 @@ function downloadFromUrl(url: string, maxRedirects: number = 5): Promise<string>
     const client = url.startsWith('https') ? https : http;
     
     client.get(url, (res) => {
-      // Handle redirects (301, 302, 307, 308)
       if (res.statusCode && [301, 302, 307, 308].includes(res.statusCode)) {
         const redirectUrl = res.headers.location;
         if (!redirectUrl) {
           reject(new Error(`Redirect without Location header (HTTP ${res.statusCode}`));
           return;
         }
-        // Follow the redirect
         downloadFromUrl(redirectUrl, maxRedirects - 1).then(resolve).catch(reject);
         return;
       }
@@ -112,4 +137,3 @@ function downloadFromUrl(url: string, maxRedirects: number = 5): Promise<string>
     }).on('error', reject);
   });
 }
-

@@ -117,6 +117,173 @@ h1 {
     font-weight: 600;
 }
 
+/* ==========================================
+   Sync Config Section
+   ========================================== */
+
+.sync-config-section {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px var(--shadow);
+}
+
+.sync-config-section h2 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 18px;
+}
+
+.syncs-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 15px;
+}
+
+.sync-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.sync-card.sync-archived {
+    opacity: 0.6;
+    border-style: dashed;
+}
+
+.sync-card.sync-disabled {
+    opacity: 0.8;
+}
+
+.sync-card-header {
+    padding: 12px 15px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sync-card-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sync-card-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.sync-card-body {
+    padding: 12px 15px;
+}
+
+.sync-card-detail {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.sync-card-detail:last-child {
+    margin-bottom: 0;
+}
+
+.sync-card-detail strong {
+    color: var(--text-primary);
+}
+
+.sync-empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.sync-empty p {
+    margin-bottom: 15px;
+}
+
+/* Badges */
+.badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.badge-archived {
+    background: #6c757d;
+    color: white;
+}
+
+.badge-disabled {
+    background: #ffc107;
+    color: #000;
+}
+
+.sync-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+/* Buttons */
+.btn {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    transition: all 0.2s;
+}
+
+.btn:hover {
+    background: var(--hover-bg);
+}
+
+.btn-primary {
+    background: #0366d6;
+    color: white;
+    border-color: #0366d6;
+}
+
+.btn-primary:hover {
+    background: #0256c7;
+    border-color: #0256c7;
+}
+
+.btn-small {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+.collapse-toggle {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 1;
+}
+
+/* Stats */
 .stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(75px, 1fr));
@@ -182,6 +349,7 @@ h1 {
     font-weight: bold;
 }
 
+/* Filters */
 .filters {
     padding: 7px 0px;
     margin-bottom: 10px;
@@ -229,6 +397,7 @@ h1 {
     background: #0366d6;
 }
 
+/* Table */
 table {
     width: 100%;
     background: var(--bg-secondary);
@@ -377,6 +546,10 @@ button:disabled {
     box-shadow: 0 4px 12px var(--shadow);
 }
 
+.modal-content.modal-wide {
+    max-width: 800px;
+}
+
 .modal-header {
     padding: 20px;
     border-bottom: 1px solid var(--border-color);
@@ -424,6 +597,123 @@ button:disabled {
     color: var(--text-primary);
 }
 
+/* Form styles for sync modal */
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"] {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #0366d6;
+    box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+}
+
+.field-hint {
+    margin-top: 6px;
+    margin-bottom: 0;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.field-hint code {
+    background: var(--bg-tertiary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 20px;
+}
+
+.form-column h3 {
+    margin-bottom: 15px;
+    font-size: 14px;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+.form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Validation results */
+.validation-results {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.column-validation-result {
+    margin-top: 15px;
+    min-height: 38px;
+}
+
+.validation-success {
+    padding: 8px 12px;
+    background: #d4edda;
+    color: #155724;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.validation-error {
+    padding: 8px 12px;
+    background: #f8d7da;
+    color: #721c24;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.validation-error a {
+    color: #721c24;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+.validation-error a:hover {
+    color: #491217;
+}
+
+.validation-pending {
+    padding: 8px 12px;
+    background: #d1ecf1;
+    color: #0c5460;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+/* Visibility badges */
 .visibility-badge {
     display: inline-block;
     padding: 4px 8px;
@@ -448,4 +738,25 @@ button:disabled {
 .visibility-internal {
     background: #fff3cd;
     color: #856404;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .syncs-list {
+        grid-template-columns: 1fr;
+    }
+    
+    .header-content {
+        flex-direction: column;
+    }
+    
+    .workers-control {
+        max-width: none;
+        width: 100%;
+    }
 }

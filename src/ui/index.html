@@ -29,21 +29,21 @@
                     <div class="worker-row">
                         <button class="worker-button" id="worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
                         <div class="worker-info">
-                            <span class="worker-name" title="Worker that checks if unknown repos should be synced, and if source has received updates and must be resynced">Checker</span>
+                            <span class="worker-name" title="Worker that checks if unknown repos should be synced">Checker</span>
                             <span class="worker-status" id="worker-status">Initializing...</span>
                         </div>
                     </div>
                     <div class="worker-row">
                         <button class="worker-button" id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
                         <div class="worker-info">
-                            <span class="worker-name" title="Worker that queues up to 10 unsynced repos with GitHub Enterprise Importer">Queuer</span>
+                            <span class="worker-name" title="Worker that queues unsynced repos with GEI">Queuer</span>
                             <span class="worker-status" id="migration-worker-status">Initializing...</span>
                         </div>
                     </div>
                     <div class="worker-row">
                         <button class="worker-button" id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
                         <div class="worker-info">
-                            <span class="worker-name" title="Worker that checks progress of migrations, sets status to synced and downloads logs">Reporter</span>
+                            <span class="worker-name" title="Worker that checks progress of migrations">Reporter</span>
                             <span class="worker-status" id="progress-worker-status">Initializing...</span>
                         </div>
                     </div>
@@ -52,6 +52,26 @@
         </header>
 
         <main>
+            <!-- Sync Config Section -->
+            <div class="sync-config-section">
+                <div class="sync-config-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="btn btn-small collapse-toggle" id="sync-collapse-toggle" onclick="toggleSyncSection()" title="Toggle section">▼</button>
+                        <h2 style="margin: 0;">Sync Configurations</h2>
+                    </div>
+                    <div id="sync-header-controls" style="display: flex; gap: 10px; align-items: center;">
+                        <label style="font-size: 14px; display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="show-archived-syncs" onchange="toggleShowArchivedSyncs()">
+                            Show archived
+                        </label>
+                        <button class="btn btn-primary" onclick="openSyncModal()">+ Add Sync</button>
+                    </div>
+                </div>
+                <div id="syncs-list" class="syncs-list">
+                    <!-- Syncs will be rendered here -->
+                </div>
+            </div>
+
             <div class="stats">
                 <div class="stat-box" onclick="filterByStatBox('all')" style="cursor: pointer;">
                     <div class="stat-label">Total</div>
@@ -84,13 +104,19 @@
             </div>
 
             <div class="filters">
-                <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <label for="repo-filter" style="margin: 0;">Filter:</label>
                         <div style="position: relative; display: inline-block;">
                             <input type="text" id="repo-filter" placeholder="Filter by repository name..." style="padding: 5px 30px 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 250px;" />
                             <button id="clear-filter" onclick="clearRepoFilter()" style="position: absolute; right: 5px; top: 50%; transform: translateY(-50%); background: none; border: none; padding: 0; width: 20px; height: 20px; cursor: pointer; display: none; font-size: 16px; color: #666; line-height: 1;" title="Clear filter">&times;</button>
                         </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <label for="sync-filter" style="margin: 0;">Sync:</label>
+                        <select id="sync-filter" onchange="onSyncFilterChange()" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 150px;">
+                            <option value="">All Syncs</option>
+                        </select>
                     </div>
                     <div class="status-filters">
                         <button class="filter-pill status-unknown active" data-status="unknown">UNKNOWN</button>
@@ -106,9 +132,10 @@
             <table id="migrations-table">
                 <thead>
                     <tr>
+                        <th class="sortable" data-sort="sync">Sync</th>
                         <th class="sortable" data-sort="name">Repository</th>
                         <th class="sortable" data-sort="status">Status</th>
-                        <th class="sortable" data-sort="lastUpdate" title="Last change in status in the migration dashboard">Updated</th>
+                        <th class="sortable" data-sort="lastUpdate" title="Last change in status">Updated</th>
                         <th class="sortable" data-sort="lastChecked" title="Last time target was compared to source">Checked</th>
                         <th class="sortable" data-sort="startedAt" title="When migration sync started">Synced</th>
                         <th class="sortable" data-sort="lastPushed" title="Last commit in source repo">Commit</th>
@@ -124,6 +151,93 @@
                 </tbody>
             </table>
         </main>
+    </div>
+
+    <!-- Sync Config Modal -->
+    <div id="sync-modal" class="modal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2 id="sync-modal-title">Add Sync Configuration</h2>
+                <button class="close-btn" onclick="closeSyncModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="sync-form" onsubmit="saveSyncConfig(event)">
+                    <input type="hidden" id="sync-id" value="">
+                    
+                    <div class="form-group">
+                        <label for="sync-name">Name *</label>
+                        <input type="text" id="sync-name" required placeholder="e.g., GHES Production → GitHub.com">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-column">
+                            <h3>Source</h3>
+                            <div class="form-group">
+                                <label for="source-enterprise">Enterprise *</label>
+                                <input type="text" id="source-enterprise" required placeholder="enterprise-slug">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-org">Organization *</label>
+                                <input type="text" id="source-org" required placeholder="org-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-url">API URL (leave empty for github.com)</label>
+                                <input type="text" id="source-url" placeholder="https://ghes.example.com/api/v3">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-token">Personal Access Token *</label>
+                                <input type="password" id="source-token" required placeholder="ghp_...">
+                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>. Must be SSO-authorized for the organization.</p>
+                            </div>
+                            <div id="source-validation-result" class="column-validation-result"></div>
+                        </div>
+                        <div class="form-column">
+                            <h3>Target</h3>
+                            <div class="form-group">
+                                <label for="target-enterprise">Enterprise *</label>
+                                <input type="text" id="target-enterprise" required placeholder="enterprise-slug">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-org">Organization *</label>
+                                <input type="text" id="target-org" required placeholder="org-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-url">API URL (leave empty for github.com)</label>
+                                <input type="text" id="target-url" placeholder="https://ghes.example.com/api/v3">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-token">Personal Access Token *</label>
+                                <input type="password" id="target-token" required placeholder="ghp_...">
+                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>, <code>delete_repo</code>. Must be SSO-authorized for the organization.</p>
+                            </div>
+                            <div id="target-validation-result" class="column-validation-result"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="sync-enabled" checked>
+                            Enabled
+                        </label>
+                    </div>
+                    
+                    <div id="sync-dates" style="display: none; margin-top: 15px; padding: 15px; background: var(--bg-secondary); border-radius: 4px;">
+                        <div style="display: flex; gap: 30px;">
+                            <div><strong>Created:</strong> <span id="sync-created-at">-</span></div>
+                            <div><strong>Last Synced:</strong> <span id="sync-last-synced">-</span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn" onclick="validateSyncConfig()">Test Connection</button>
+                        <button type="button" class="btn" onclick="closeSyncModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                    
+                    <div id="sync-validation-error" class="validation-error" style="margin-top: 15px; display: none;"></div>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- Modal for logs -->

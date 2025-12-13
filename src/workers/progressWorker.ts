@@ -1,61 +1,57 @@
-import { Config } from '../config';
+import { SyncRuntimeConfig } from '../types';
 import * as state from '../state';
 import { getMigrationStatus } from '../github';
-import { downloadLogs } from '../logs';
+import { downloadLogsById } from '../logs';
 
-export async function pollMigrationStatuses(
-  config: Config, 
+/**
+ * Poll migration statuses for a specific sync
+ */
+export async function pollMigrationStatusesForSync(
+  config: SyncRuntimeConfig, 
   onUpdate?: () => void,
   onRepoStart?: (repoName: string) => void,
   onRepoEnd?: () => void,
   shouldStop?: () => boolean
 ): Promise<void> {
-  const incomplete = state.listIncomplete();
+  const incomplete = state.listIncompleteBySyncId(config.id);
   
   if (incomplete.length === 0) {
     return;
   }
 
-  // Poll repos sequentially (don't log for routine checks)
   for (const repo of incomplete) {
-    // Check if worker should stop
     if (shouldStop && shouldStop()) {
       console.log(`[${new Date().toISOString()}] Progress worker: Stopping (worker disabled)`);
-      if (onRepoEnd) {
-        onRepoEnd();
-      }
+      if (onRepoEnd) onRepoEnd();
       return;
     }
     
-    if (onRepoStart) {
-      onRepoStart(repo.name);
-    }
+    if (onRepoStart) onRepoStart(repo.name);
     
     await pollSingleRepo(config, repo, onUpdate);
     
-    if (onRepoEnd) {
-      onRepoEnd();
-    }
+    if (onRepoEnd) onRepoEnd();
   }
 
   await state.saveState();
 }
 
-async function pollSingleRepo(config: Config, repo: state.RepoState, onUpdate?: () => void): Promise<void> {
+async function pollSingleRepo(
+  config: SyncRuntimeConfig, 
+  repo: state.RepoState, 
+  onUpdate?: () => void
+): Promise<void> {
   if (!repo.migrationId) {
-    // Check if this repo has been in-progress for over 1 minute without a migration ID
+    // Check if repo has been in-progress too long without migration ID
     if (repo.startedAt && !repo.endedAt) {
       const startTime = new Date(repo.startedAt).getTime();
       const now = Date.now();
       const elapsedMs = now - startTime;
       
-      if (elapsedMs > 60000) { // 1 minute
+      if (elapsedMs > 60000) {
         console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000)}s without migration ID, marking as unknown`);
-        state.setStatus(repo.name, 'unknown', 'Migration status lost - may have completed or failed');
-        
-        if (onUpdate) {
-          onUpdate();
-        }
+        state.setStatus(repo.id, 'unknown', 'Migration status lost - may have completed or failed');
+        if (onUpdate) onUpdate();
       }
     }
     return;
@@ -65,27 +61,25 @@ async function pollSingleRepo(config: Config, repo: state.RepoState, onUpdate?: 
     const status = await getMigrationStatus(config.target, repo.migrationId);
 
     if (!status) {
-      // Migration status not found - might have completed or failed without us noticing
       if (repo.startedAt) {
         const startTime = new Date(repo.startedAt).getTime();
         const now = Date.now();
         const elapsedMs = now - startTime;
         
-        if (elapsedMs > 60000) { // 1 minute
+        if (elapsedMs > 60000) {
           console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} migration not found after ${Math.round(elapsedMs / 1000)}s, marking as unknown`);
-          state.setStatus(repo.name, 'unknown', 'Migration status not found - may have completed or failed');
-          
-          if (onUpdate) {
-            onUpdate();
-          }
+          state.setStatus(repo.id, 'unknown', 'Migration status not found - may have completed or failed');
+          if (onUpdate) onUpdate();
         }
       }
       return;
     }
 
     const now = new Date().toISOString();
-    repo.lastPolledAt = now;
-    repo.lastChecked = now;
+    state.upsertRepo(repo.id, {
+      lastPolledAt: now,
+      lastChecked: now
+    });
 
     const newStatus = mapGitHubStatus(status.state);
     
@@ -95,20 +89,19 @@ async function pollSingleRepo(config: Config, repo: state.RepoState, onUpdate?: 
       } else {
         console.log(`[${new Date().toISOString()}] Progress worker: ${repo.name}: ${repo.status} -> ${newStatus}`);
       }
-      state.setStatus(repo.name, newStatus, status.failureReason);
       
-      // Download logs when migration completes (success or failure)
+      state.setStatus(repo.id, newStatus, status.failureReason);
+      
+      // Download logs when migration completes
       if ((newStatus === 'synced' || newStatus === 'failed') && !repo.logs?.cached) {
         try {
-          await downloadLogs(config, repo.name);
+          await downloadLogsById(repo.id);
         } catch (error) {
           console.error(`[${new Date().toISOString()}] Progress worker: Failed to download logs for ${repo.name}:`, error);
         }
       }
       
-      if (onUpdate) {
-        onUpdate();
-      }
+      if (onUpdate) onUpdate();
     }
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Progress worker: Error polling ${repo.name}:`, error);

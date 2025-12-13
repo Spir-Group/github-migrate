@@ -1,4 +1,4 @@
-import { Config } from '../config';
+import { SyncRuntimeConfig } from '../types';
 import * as state from '../state';
 import { runGh, extractMigrationId } from '../github';
 import * as fs from 'fs';
@@ -6,33 +6,37 @@ import * as path from 'path';
 
 const MAX_CONCURRENT_QUEUED = 10;
 
-// Helper to check if a status represents an unsynced state
-export function isUnsynced(status: state.MigrationStatus): boolean {
-  return status === 'unsynced';
-}
-
-// Count repos with queued status
+/**
+ * Count repos with queued status across all syncs
+ */
 export function countQueuedRepos(): number {
-  const allRepos = state.listAll();
+  const allRepos = state.listActiveRepos();
   return allRepos.filter(repo => repo.status === 'queued').length;
 }
 
-// Check if we can queue more repos
+/**
+ * Check if we can queue more repos (global limit)
+ */
 export function canQueueMoreRepos(): boolean {
   return countQueuedRepos() < MAX_CONCURRENT_QUEUED;
 }
 
-// Find and queue the next unsynced repository
-export async function queueNextRepo(config: Config, onRepoStart?: (repoName: string) => void): Promise<string | null> {
-  // Check if we've hit the concurrent queue limit
+/**
+ * Find and queue the next unsynced repository for a specific sync
+ */
+export async function queueNextRepoForSync(
+  config: SyncRuntimeConfig, 
+  onRepoStart?: (repoName: string) => void
+): Promise<string | null> {
+  // Check global concurrent queue limit
   if (!canQueueMoreRepos()) {
     return null;
   }
 
-  const allRepos = state.listAll();
+  const syncRepos = state.listActiveBySyncId(config.id);
   
   // Find first repo that needs migration
-  const unsyncedRepo = allRepos.find(repo => isUnsynced(repo.status));
+  const unsyncedRepo = syncRepos.find(repo => repo.status === 'unsynced');
   
   if (!unsyncedRepo) {
     return null;
@@ -41,19 +45,26 @@ export async function queueNextRepo(config: Config, onRepoStart?: (repoName: str
   if (onRepoStart) {
     onRepoStart(unsyncedRepo.name);
   }
-  await queueSingleRepo(config, unsyncedRepo.name, unsyncedRepo.visibility);
+  
+  await queueSingleRepoForSync(config, unsyncedRepo);
   
   return unsyncedRepo.name;
 }
 
-export async function queueSingleRepo(config: Config, repoName: string, visibility: state.RepoVisibility): Promise<void> {
+/**
+ * Queue a single repo for migration
+ */
+export async function queueSingleRepoForSync(
+  config: SyncRuntimeConfig, 
+  repo: state.RepoState
+): Promise<void> {
   try {
     const args = [
       'gei', 'migrate-repo',
       '--github-source-org', config.source.org,
-      '--source-repo', repoName,
+      '--source-repo', repo.name,
       '--github-target-org', config.target.org,
-      '--target-repo', repoName,
+      '--target-repo', repo.name,
       '--queue-only',
       '--github-source-pat', config.source.token,
       '--github-target-pat', config.target.token
@@ -69,33 +80,30 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
     }
 
     // Try to set target visibility
-    args.push('--target-repo-visibility', visibility);
+    args.push('--target-repo-visibility', repo.visibility);
 
     const result = await runGh(args);
 
-    // Clean up octopath log files that gh gei might create (silently)
+    // Clean up octopath log files
     await cleanupOctopathLogs();
 
     if (result.code !== 0) {
-      console.error(`[${new Date().toISOString()}] Failed to queue ${repoName}: ${result.stderr}`);
-      state.setStatus(repoName, 'failed', result.stderr);
+      console.error(`[${new Date().toISOString()}] Failed to queue ${repo.name}: ${result.stderr}`);
+      state.setStatus(repo.id, 'failed', result.stderr);
       return;
     }
 
-    // Check for "already contains" error in stdout or stderr
+    // Check for "already contains" error
     const combinedOutput = result.stdout + result.stderr;
     if (combinedOutput.includes('already contains a repository with the name')) {
-      
-      // Try to delete the target repository
-      const deleteSuccess = await deleteTargetRepository(config, repoName);
+      const deleteSuccess = await deleteTargetRepository(config, repo.name);
       if (deleteSuccess) {
-        // Retry the migration after deletion
-        await queueSingleRepo(config, repoName, visibility);
+        await queueSingleRepoForSync(config, repo);
         return;
       } else {
         const errorMsg = `Failed to delete existing target repository. Original error: ${result.stdout}`;
         console.error(`[${new Date().toISOString()}] ${errorMsg}`);
-        state.setStatus(repoName, 'failed', errorMsg);
+        state.setStatus(repo.id, 'failed', errorMsg);
         return;
       }
     }
@@ -103,30 +111,31 @@ export async function queueSingleRepo(config: Config, repoName: string, visibili
     const migrationId = extractMigrationId(result.stdout);
     
     if (!migrationId) {
-      console.error(`[${new Date().toISOString()}] Could not extract migration ID for ${repoName}`);
+      console.error(`[${new Date().toISOString()}] Could not extract migration ID for ${repo.name}`);
       const errorMsg = `Could not extract migration ID from output\n${result.stdout}`;
-      state.setStatus(repoName, 'failed', errorMsg);
+      state.setStatus(repo.id, 'failed', errorMsg);
       return;
     }
 
     const now = new Date().toISOString();
-    state.upsertRepo(repoName, {
+    state.upsertRepo(repo.id, {
       migrationId,
       status: 'queued',
       queuedAt: now,
-      elapsedSeconds: 0  // Reset elapsed time when entering queued state
+      startedAt: undefined,
+      endedAt: undefined,
+      elapsedSeconds: 0
     });
 
-    console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repoName}`);
+    console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repo.name}`);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error queueing ${repoName}:`, error);
-    state.setStatus(repoName, 'failed', String(error));
+    console.error(`[${new Date().toISOString()}] Error queueing ${repo.name}:`, error);
+    state.setStatus(repo.id, 'failed', String(error));
   }
 }
 
-async function deleteTargetRepository(config: Config, repoName: string): Promise<boolean> {
+async function deleteTargetRepository(config: SyncRuntimeConfig, repoName: string): Promise<boolean> {
   try {
-    
     const apiUrl = config.target.hostLabel === 'github.com'
       ? `https://api.github.com/repos/${config.target.org}/${repoName}`
       : `https://${config.target.hostLabel}/api/v3/repos/${config.target.org}/${repoName}`;
@@ -163,12 +172,11 @@ async function cleanupOctopathLogs(): Promise<void> {
       const filePath = path.join(cwd, file);
       try {
         fs.unlinkSync(filePath);
-        // Silently clean up - no logging
       } catch (err) {
-        // Silently ignore cleanup failures
+        // Silently ignore
       }
     }
   } catch (error) {
-    // Silently ignore errors during cleanup
+    // Silently ignore
   }
 }

@@ -146,6 +146,92 @@ export async function checkGeiExtension(): Promise<boolean> {
   }
 }
 
+export interface OrgAccessResult {
+  authorized: boolean;
+  orgName: string;
+  error?: string;
+}
+
+export async function checkOrgAccess(hostConfig: HostConfig): Promise<OrgAccessResult> {
+  try {
+    // Query org AND try to list repos to verify full access
+    const query = `
+      query($org: String!) {
+        organization(login: $org) {
+          login
+          name
+          repositories(first: 1) {
+            totalCount
+            nodes {
+              name
+            }
+          }
+        }
+      }
+    `;
+
+    const args = ['api', 'graphql'];
+    
+    if (hostConfig.hostLabel !== 'github.com') {
+      args.push('--hostname', hostConfig.hostLabel);
+    }
+    
+    args.push('-f', `query=${query}`, '-F', `org=${hostConfig.org}`);
+
+    const result = await runGh(args, { GH_TOKEN: hostConfig.token });
+    
+    if (result.code !== 0) {
+      // Check for common auth errors
+      const stderr = result.stderr.toLowerCase();
+      if (stderr.includes('401') || stderr.includes('unauthorized') || stderr.includes('bad credentials')) {
+        return { authorized: false, orgName: hostConfig.org, error: 'Token is invalid or expired' };
+      }
+      if (stderr.includes('403') || stderr.includes('forbidden')) {
+        return { authorized: false, orgName: hostConfig.org, error: 'Token does not have access to this organization' };
+      }
+      if (stderr.includes('404') || stderr.includes('not found') || stderr.includes('could not resolve')) {
+        return { authorized: false, orgName: hostConfig.org, error: `Organization '${hostConfig.org}' not found or token lacks access` };
+      }
+      if (stderr.includes('saml') || stderr.includes('sso')) {
+        return { authorized: false, orgName: hostConfig.org, error: 'Token requires SSO authorization for this organization' };
+      }
+      return { authorized: false, orgName: hostConfig.org, error: result.stderr || 'Unknown error checking org access' };
+    }
+
+    const response = JSON.parse(result.stdout);
+    
+    if (response.errors) {
+      const errorMsg = response.errors[0]?.message || 'GraphQL error';
+      const errorType = response.errors[0]?.type || '';
+      
+      if (errorMsg.toLowerCase().includes('could not resolve')) {
+        return { authorized: false, orgName: hostConfig.org, error: `Organization '${hostConfig.org}' not found or token lacks access` };
+      }
+      if (errorMsg.toLowerCase().includes('saml') || errorMsg.toLowerCase().includes('sso')) {
+        return { authorized: false, orgName: hostConfig.org, error: 'Token requires SSO authorization for this organization' };
+      }
+      if (errorType === 'FORBIDDEN' || errorMsg.toLowerCase().includes('forbidden')) {
+        return { authorized: false, orgName: hostConfig.org, error: 'Token lacks permission to access this organization\'s repositories' };
+      }
+      return { authorized: false, orgName: hostConfig.org, error: errorMsg };
+    }
+    
+    if (!response.data?.organization) {
+      return { authorized: false, orgName: hostConfig.org, error: `Organization '${hostConfig.org}' not found or token lacks access` };
+    }
+
+    // Check if we can actually access repositories
+    const repos = response.data.organization.repositories;
+    if (repos === null) {
+      return { authorized: false, orgName: hostConfig.org, error: 'Token cannot list repositories - check "repo" scope and SSO authorization' };
+    }
+
+    return { authorized: true, orgName: hostConfig.org };
+  } catch (error) {
+    return { authorized: false, orgName: hostConfig.org, error: String(error) };
+  }
+}
+
 export function extractMigrationId(output: string): string | null {
   const patterns = [
     /migration\s+id[:\s]+([0-9]+)/i,
