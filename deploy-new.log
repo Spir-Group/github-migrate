@@ -1,0 +1,102 @@
+Source files are newer than the application jar file, build required
+[…] Building github-migrate...
+
+> github-migrate@1.0.0 docker:prepare
+> npm run build && cp package*.json dist/ && cp src/Dockerfile dist/ && cp -r src/ui dist/
+
+
+> github-migrate@1.0.0 build
+> tsc
+
+[✓] Build successful
+Deploying github-migrate stack to prod...
+[WARNING] aws-cdk-lib.aws_dynamodb.TableOptions#pointInTimeRecovery is deprecated.
+  use `pointInTimeRecoverySpecification` instead
+  This API will be removed in the next major release.
+[!] No secrets provided in SSM at /components/github-migrate/prod/secrets, will not be added to container entrypoint
+
+✨  Synthesis time: 7.02s
+
+github-migrate-prod: deploying... [1/1]
+github-migrate-prod: creating CloudFormation changeset...
+github-migrate-prod |  0/22 | 10:39:50 PM | REVIEW_IN_PROGRESS   | AWS::CloudFormation::Stack                    | github-migrate-prod User Initiated
+github-migrate-prod |  0/22 | 10:39:56 PM | CREATE_IN_PROGRESS   | AWS::CloudFormation::Stack                    | github-migrate-prod User Initiated
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::Events::Rule                             | App/EcsRule (AppEcsRule66DBE625) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TaskDef/ExecutionRole (AppTaskDefExecutionRole93ECF0C3) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::TargetGroup      | App/ApiProdListener/ApiProdTG (AppApiProdListenerApiProdTG2F0EB21E) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TaskRole (AppTaskRole9B4EA8ED) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to 0.0.0.0_0:443 (AppApiProdListenerSecurityGroupsgc795f3acto000004430DBA798F) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::DynamoDB::Table                          | StateTable (StateTable9728C7E5) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::ECS::Cluster                             | App/Cluster (AppCluster68CC0559) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TagFunc/ServiceRole (AppTagFuncServiceRole79FB7C29) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::Route53::RecordSet                       | App/GithubMigrateAmbitaCom (AppGithubMigrateAmbitaCom265C861A) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::CDK::Metadata                            | CDKMetadata/Default (CDKMetadata) 
+github-migrate-prod |  0/22 | 10:39:59 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroup                       | App/SG (AppSG54B5A9BB) 
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TaskDef/ExecutionRole (AppTaskDefExecutionRole93ECF0C3) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::Events::Rule                             | App/EcsRule (AppEcsRule66DBE625) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TaskRole (AppTaskRole9B4EA8ED) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::ECS::Cluster                             | App/Cluster (AppCluster68CC0559) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::CDK::Metadata                            | CDKMetadata/Default (CDKMetadata) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::IAM::Role                                | App/TagFunc/ServiceRole (AppTagFuncServiceRole79FB7C29) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::TargetGroup      | App/ApiProdListener/ApiProdTG (AppApiProdListenerApiProdTG2F0EB21E) Resource creation Initiated
+github-migrate-prod |  0/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to 0.0.0.0_0:443 (AppApiProdListenerSecurityGroupsgc795f3acto000004430DBA798F) Resource creation Initiated
+github-migrate-prod |  1/22 | 10:40:00 PM | CREATE_COMPLETE      | AWS::CDK::Metadata                            | CDKMetadata/Default (CDKMetadata) 
+github-migrate-prod |  1/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::DynamoDB::Table                          | StateTable (StateTable9728C7E5) Resource creation Initiated
+github-migrate-prod |  2/22 | 10:40:00 PM | CREATE_COMPLETE      | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to 0.0.0.0_0:443 (AppApiProdListenerSecurityGroupsgc795f3acto000004430DBA798F) 
+github-migrate-prod |  2/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::Route53::RecordSet                       | App/GithubMigrateAmbitaCom (AppGithubMigrateAmbitaCom265C861A) Resource creation Initiated
+github-migrate-prod |  2/22 | 10:40:00 PM | CREATE_IN_PROGRESS   | AWS::ECS::Cluster                             | App/Cluster (AppCluster68CC0559) Eventual consistency check initiated
+github-migrate-prod |  2/22 | 10:40:01 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroup                       | App/SG (AppSG54B5A9BB) Resource creation Initiated
+github-migrate-prod |  3/22 | 10:40:03 PM | CREATE_COMPLETE      | AWS::ECS::Cluster                             | App/Cluster (AppCluster68CC0559) 
+github-migrate-prod |  3/22 | 10:40:04 PM | CREATE_IN_PROGRESS   | AWS::ECS::ClusterCapacityProviderAssociations | App/Cluster/Cluster (AppCluster5466C70E) 
+github-migrate-prod |  3/22 | 10:40:05 PM | CREATE_IN_PROGRESS   | AWS::ECS::ClusterCapacityProviderAssociations | App/Cluster/Cluster (AppCluster5466C70E) Resource creation Initiated
+github-migrate-prod |  4/22 | 10:40:08 PM | CREATE_COMPLETE      | AWS::EC2::SecurityGroup                       | App/SG (AppSG54B5A9BB) 
+github-migrate-prod |  4/22 | 10:40:09 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to {IndirectPeer}:3000 (AppApiProdListenerSecurityGroupsgc795f3actoIndirectPeer30006B76FC3B) 
+github-migrate-prod |  4/22 | 10:40:10 PM | CREATE_IN_PROGRESS   | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to {IndirectPeer}:3000 (AppApiProdListenerSecurityGroupsgc795f3actoIndirectPeer30006B76FC3B) Resource creation Initiated
+github-migrate-prod |  5/22 | 10:40:10 PM | CREATE_COMPLETE      | AWS::EC2::SecurityGroupEgress                 | App/ApiProdListener/SecurityGroup-sg-c795f3ac/to {IndirectPeer}:3000 (AppApiProdListenerSecurityGroupsgc795f3actoIndirectPeer30006B76FC3B) 
+github-migrate-prod |  6/22 | 10:40:16 PM | CREATE_COMPLETE      | AWS::ElasticLoadBalancingV2::TargetGroup      | App/ApiProdListener/ApiProdTG (AppApiProdListenerApiProdTG2F0EB21E) 
+github-migrate-prod |  7/22 | 10:40:16 PM | CREATE_COMPLETE      | AWS::IAM::Role                                | App/TaskDef/ExecutionRole (AppTaskDefExecutionRole93ECF0C3) 
+github-migrate-prod |  7/22 | 10:40:16 PM | CREATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::ListenerRule     | App/ApiProdListener/ApiProdRule (AppApiProdListenerApiProdRule0C2C4B49) 
+github-migrate-prod |  8/22 | 10:40:16 PM | CREATE_COMPLETE      | AWS::IAM::Role                                | App/TagFunc/ServiceRole (AppTagFuncServiceRole79FB7C29) 
+github-migrate-prod |  8/22 | 10:40:16 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TaskDef/ExecutionRole/DefaultPolicy (AppTaskDefExecutionRoleDefaultPolicy338176A6) 
+github-migrate-prod |  9/22 | 10:40:17 PM | CREATE_COMPLETE      | AWS::IAM::Role                                | App/TaskRole (AppTaskRole9B4EA8ED) 
+github-migrate-prod |  9/22 | 10:40:17 PM | CREATE_IN_PROGRESS   | AWS::ElasticLoadBalancingV2::ListenerRule     | App/ApiProdListener/ApiProdRule (AppApiProdListenerApiProdRule0C2C4B49) Resource creation Initiated
+github-migrate-prod |  9/22 | 10:40:18 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TaskDef/ExecutionRole/DefaultPolicy (AppTaskDefExecutionRoleDefaultPolicy338176A6) Resource creation Initiated
+github-migrate-prod | 10/22 | 10:40:18 PM | CREATE_COMPLETE      | AWS::ElasticLoadBalancingV2::ListenerRule     | App/ApiProdListener/ApiProdRule (AppApiProdListenerApiProdRule0C2C4B49) 
+github-migrate-prod | 10/22 | 10:40:18 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TagFunc/ServiceRole/DefaultPolicy (AppTagFuncServiceRoleDefaultPolicy7D8CD259) 
+github-migrate-prod | 10/22 | 10:40:20 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TagFunc/ServiceRole/DefaultPolicy (AppTagFuncServiceRoleDefaultPolicy7D8CD259) Resource creation Initiated
+github-migrate-prod | 11/22 | 10:40:20 PM | CREATE_COMPLETE      | AWS::ECS::ClusterCapacityProviderAssociations | App/Cluster/Cluster (AppCluster5466C70E) 
+github-migrate-prod | 12/22 | 10:40:23 PM | CREATE_COMPLETE      | AWS::DynamoDB::Table                          | StateTable (StateTable9728C7E5) 
+github-migrate-prod | 12/22 | 10:40:24 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TaskRole/DefaultPolicy (AppTaskRoleDefaultPolicy5936E41C) 
+github-migrate-prod | 12/22 | 10:40:25 PM | CREATE_IN_PROGRESS   | AWS::ECS::TaskDefinition                      | App/TaskDef (AppTaskDef782520AE) 
+github-migrate-prod | 12/22 | 10:40:25 PM | CREATE_IN_PROGRESS   | AWS::IAM::Policy                              | App/TaskRole/DefaultPolicy (AppTaskRoleDefaultPolicy5936E41C) Resource creation Initiated
+github-migrate-prod | 12/22 | 10:40:26 PM | CREATE_IN_PROGRESS   | AWS::ECS::TaskDefinition                      | App/TaskDef (AppTaskDef782520AE) Resource creation Initiated
+github-migrate-prod | 13/22 | 10:40:26 PM | CREATE_COMPLETE      | AWS::ECS::TaskDefinition                      | App/TaskDef (AppTaskDef782520AE) 
+github-migrate-prod | 14/22 | 10:40:33 PM | CREATE_COMPLETE      | AWS::IAM::Policy                              | App/TaskDef/ExecutionRole/DefaultPolicy (AppTaskDefExecutionRoleDefaultPolicy338176A6) 
+github-migrate-prod | 15/22 | 10:40:33 PM | CREATE_COMPLETE      | AWS::Route53::RecordSet                       | App/GithubMigrateAmbitaCom (AppGithubMigrateAmbitaCom265C861A) 
+github-migrate-prod | 16/22 | 10:40:35 PM | CREATE_COMPLETE      | AWS::IAM::Policy                              | App/TagFunc/ServiceRole/DefaultPolicy (AppTagFuncServiceRoleDefaultPolicy7D8CD259) 
+github-migrate-prod | 16/22 | 10:40:37 PM | CREATE_IN_PROGRESS   | AWS::Lambda::Function                         | App/TagFunc (AppTagFunc01621A15) 
+github-migrate-prod | 16/22 | 10:40:38 PM | CREATE_IN_PROGRESS   | AWS::Lambda::Function                         | App/TagFunc (AppTagFunc01621A15) Resource creation Initiated
+github-migrate-prod | 16/22 | 10:40:39 PM | CREATE_IN_PROGRESS   | AWS::Lambda::Function                         | App/TagFunc (AppTagFunc01621A15) Eventual consistency check initiated
+github-migrate-prod | 17/22 | 10:40:41 PM | CREATE_COMPLETE      | AWS::IAM::Policy                              | App/TaskRole/DefaultPolicy (AppTaskRoleDefaultPolicy5936E41C) 
+github-migrate-prod | 18/22 | 10:40:44 PM | CREATE_COMPLETE      | AWS::Lambda::Function                         | App/TagFunc (AppTagFunc01621A15) 
+github-migrate-prod | 18/22 | 10:40:44 PM | CREATE_IN_PROGRESS   | AWS::CloudFormation::CustomResource           | App/TagCR/Default (AppTagCR72CAE69B) 
+github-migrate-prod | 18/22 | 10:40:47 PM | CREATE_IN_PROGRESS   | AWS::CloudFormation::CustomResource           | App/TagCR/Default (AppTagCR72CAE69B) Resource creation Initiated
+github-migrate-prod | 19/22 | 10:40:47 PM | CREATE_COMPLETE      | AWS::CloudFormation::CustomResource           | App/TagCR/Default (AppTagCR72CAE69B) 
+github-migrate-prod | 20/22 | 10:41:01 PM | CREATE_COMPLETE      | AWS::Events::Rule                             | App/EcsRule (AppEcsRule66DBE625) 
+github-migrate-prod | 20/22 | 10:41:01 PM | CREATE_IN_PROGRESS   | AWS::ECS::Service                             | App/Service/Service (AppService606B9134) 
+github-migrate-prod | 20/22 | 10:41:03 PM | CREATE_IN_PROGRESS   | AWS::ECS::Service                             | App/Service/Service (AppService606B9134) Resource creation Initiated
+github-migrate-prod | 21/22 | 10:42:34 PM | CREATE_COMPLETE      | AWS::ECS::Service                             | App/Service/Service (AppService606B9134) 
+github-migrate-prod | 22/22 | 10:42:35 PM | CREATE_COMPLETE      | AWS::CloudFormation::Stack                    | github-migrate-prod 
+
+ ✅  github-migrate-prod
+
+✨  Deployment time: 169.62s
+
+Stack ARN:
+arn:aws:cloudformation:eu-central-1:490510653147:stack/github-migrate-prod/40a86250-d86c-11f0-9e18-0aa02b960755
+
+✨  Total time: 176.63s
+
+[✓] Deploy successful
+[!] Failed to update status, response: ,400,Illegal path /golden/status/github-migrate/prod
+[!] Failed to update status, response: ,400,Illegal path /golden/status/github-migrate/prod
