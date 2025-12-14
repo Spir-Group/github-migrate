@@ -96,7 +96,7 @@
                         </div>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <label for="sync-filter" style="margin: 0;">Sync:</label>
+                        <label for="sync-filter" style="margin: 0;">Orgs:</label>
                         <select id="sync-filter" onchange="onSyncFilterChange()" style="padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px; min-width: 150px;">
                             <option value="">All Syncs</option>
                         </select>
@@ -124,7 +124,7 @@
                         <th class="sortable" data-sort="lastPushed" title="Last commit in source repo">Commit</th>
                         <th class="sortable" data-sort="size" title="Repository size">Size</th>
                         <th class="sortable" data-sort="duration" title="Duration of migration">Duration</th>
-                        <th>Actions</th>
+                        <th class="actions-column">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="migrations-tbody">

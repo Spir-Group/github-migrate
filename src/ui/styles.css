@@ -458,6 +458,15 @@ td {
     padding: 12px;
 }
 
+.actions-column {
+    min-width: 180px;
+    white-space: nowrap;
+}
+
+td:last-child {
+    white-space: nowrap;
+}
+
 .loading {
     text-align: center;
     color: var(--text-secondary);

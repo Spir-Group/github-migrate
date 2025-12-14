@@ -64,7 +64,7 @@ function renderState() {
     const syncs = Object.values(state.syncs);
     const activeSyncs = syncs.filter(s => !s.archived);
     document.getElementById('info').textContent = 
-        `${activeSyncs.length} active sync configuration${activeSyncs.length !== 1 ? 's' : ''}`;
+        `${activeSyncs.length} org${activeSyncs.length !== 1 ? 's' : ''} being synced`;
 
     // Calculate stats (excluding archived repos)
     const repos = Object.values(state.repos).filter(r => !r.archived);
