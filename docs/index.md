@@ -2,16 +2,17 @@
 
 Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
 
-![screenshot](../screenshot.png)
+![screenshot](screenshot.png)
 
 ## Background
 
-This tool was created to support the [GitHub Enterprise Cloud migration](https://spirgroup.dev/docs/default/component/platform/platform/systems/github/migration_2025/) as outlined in [ADR-0002: GitHub Enterprise Cloud](https://spirgroup.dev/docs/default/component/platform/decisions/0002-github/).
+This tool was created to support the [GitHub Enterprise Cloud migration](https://spirgroup.dev/docs/spir/domain/platform/platform/systems/github/migration_2025/) as outlined in [ADR-0002: GitHub Enterprise Cloud](https://spirgroup.dev/docs/spir/domain/platform/decisions/0002-github/).
 
 The decision to move to GitHub Enterprise Cloud with Managed Users requires migrating repositories from:
 
-- **Existing GitHub organizations** in the current enterprise (Ambita, Spir Data, Spir Group) to the new managed users enterprise at `spirgroup.ghe.com`
+- **Existing GitHub organizations** in the current enterprise with Standard Users to a new enterprise with Managed Users
 - **Bitbucket Server** for Metria repositories
+- Later 2026 to an EU data residency supported `spirgroup.ghe.com`
 
 GitHub Enterprise Importer (GEI) is GitHub's official tool for migrating repositories, preserving pull request history, issue references, and contributor mappings. This dashboard provides a centralized view and automation layer on top of GEI to manage large-scale migrations across multiple organizations.
 

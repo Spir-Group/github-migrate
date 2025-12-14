@@ -4,7 +4,7 @@
 
 Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real-time status updates.
 
-![screenshot](screenshot.png)
+![screenshot](docs/screenshot.png)
 
 ## Features
 
