@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration - GitHub Migration Dashboard</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23333'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236B4C9A'/><stop offset='100%25' stop-color='%2300A19B'/></linearGradient></defs><circle cx='8' cy='8' r='7' fill='url(%23g)'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
         <header>
             <div class="header-content">
                 <div class="site-branding">
-                    <h1 class="site-title">GitHub Migration Dashboard</h1>
+                    <a href="/" class="site-title-link"><h1 class="site-title">GitHub Migration Dashboard</h1></a>
                     <span class="site-subtitle"><a href="https://spirgroup.dev/docs/spir/component/github-migrate" target="_blank">a SpirGroup project</a></span>
                 </div>
                 <div class="header-right">
@@ -160,74 +160,58 @@
             <!-- Administrators Section -->
             <section class="config-section" id="admin-section">
                 <div class="section-header">
-                    <h2>Administrators</h2>
+                    <h2>Administrator Configuration</h2>
                 </div>
                 
                 <div id="admin-content">
-                    <!-- User info -->
-                    <div class="config-card" style="margin-bottom: 20px;">
-                        <h3>Current User</h3>
-                        <div id="current-user-info">
-                            <p>Loading...</p>
-                        </div>
-                    </div>
-
-                    <!-- Admin mode toggle -->
-                    <div class="config-card" style="margin-bottom: 20px;">
-                        <h3>Admin Mode</h3>
-                        <p class="config-description">When enabled, only administrators can make changes. Other users can only view.</p>
-                        
-                        <div id="admin-mode-controls" style="margin-top: 15px;">
-                            <div id="admin-mode-disabled" style="display: none;">
-                                <p style="margin-bottom: 10px; color: var(--text-secondary);">
-                                    Admin mode is <strong>disabled</strong>. All users have full access.
-                                </p>
-                                <button class="btn btn-primary" onclick="enableAdminMode()" id="enable-admin-btn">
-                                    Enable Admin Mode
-                                </button>
-                                <span class="field-hint" style="display: block; margin-top: 10px;">
-                                    You will become the first administrator when enabling admin mode.
-                                </span>
+                    <div class="config-card">
+                        <!-- Header with user info left, controls right -->
+                        <div id="admin-card-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+                            <div id="current-user-info">
+                                <p>Loading...</p>
                             </div>
-                            <div id="admin-mode-enabled" style="display: none;">
-                                <p style="margin-bottom: 10px; color: var(--text-secondary);">
-                                    Admin mode is <strong>enabled</strong>. Only administrators can make changes.
+                            <div id="admin-header-controls"></div>
+                        </div>
+                        
+                        <!-- Admin mode off: help text and enable button -->
+                        <div id="admin-mode-disabled" style="display: none;">
+                            <div style="padding: 15px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 15px;">
+                                <p style="margin: 0 0 8px 0; color: var(--text-secondary);">
+                                    <strong>Admin mode is disabled.</strong> All users have full access to make changes.
                                 </p>
-                                <button class="btn btn-danger" onclick="disableAdminMode()" id="disable-admin-btn">
-                                    Disable Admin Mode
-                                </button>
+                                <p style="margin: 0; font-size: 13px; color: var(--text-secondary);">
+                                    When enabled, only administrators can modify configurations and trigger migrations. Other users will have read-only access.
+                                </p>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- Admin list (only visible when admin mode is enabled and user is admin) -->
-                    <div class="config-card" id="admin-list-section" style="display: none;">
-                        <h3>Administrator List</h3>
-                        <p class="config-description">Users with administrator access.</p>
-                        
-                        <div id="admin-list" style="margin-top: 15px;">
-                            <!-- Admin list will be rendered here -->
+                            <button class="btn btn-primary" onclick="enableAdminMode()" id="enable-admin-btn">
+                                Enable Admin Mode
+                            </button>
+                            <span class="field-hint" style="margin-left: 10px;">
+                                You will become the first administrator.
+                            </span>
                         </div>
                         
-                        <div id="add-admin-form" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
-                            <div class="form-group" style="display: flex; gap: 10px; align-items: flex-end;">
-                                <div style="flex: 1;">
-                                    <label for="new-admin-email">Add Administrator</label>
-                                    <input type="email" id="new-admin-email" placeholder="user@example.com" autocomplete="off">
+                        <!-- Admin mode on: admin list -->
+                        <div id="admin-mode-enabled" style="display: none;">
+                            <div id="admin-list"></div>
+                            
+                            <div id="add-admin-form" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color);">
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="email" id="new-admin-email" placeholder="Add administrator email..." autocomplete="off" style="flex: 1;">
+                                    <button type="button" class="btn btn-primary btn-small" onclick="addNewAdmin()">
+                                        Add
+                                    </button>
                                 </div>
-                                <button type="button" class="btn btn-primary" onclick="addNewAdmin()" style="margin-bottom: 20px;">
-                                    Add
-                                </button>
                             </div>
                         </div>
-                    </div>
-                    
-                    <!-- Read-only notice for non-admins -->
-                    <div id="read-only-notice" style="display: none; padding: 15px; background: var(--bg-tertiary); border-radius: 4px; border-left: 4px solid #f0ad4e;">
-                        <strong>Read-Only Mode</strong>
-                        <p style="margin-top: 5px; color: var(--text-secondary);">
-                            You are viewing in read-only mode. Contact an administrator for write access.
-                        </p>
+                        
+                        <!-- Read-only notice for non-admins -->
+                        <div id="read-only-notice" style="display: none; padding: 15px; background: var(--bg-tertiary); border-radius: 4px; border-left: 4px solid #f0ad4e;">
+                            <strong>Read-Only Mode</strong>
+                            <p style="margin-top: 5px; margin-bottom: 0; color: var(--text-secondary);">
+                                Admin mode is enabled. Contact an administrator for write access.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </section>

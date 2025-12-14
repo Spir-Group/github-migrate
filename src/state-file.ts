@@ -222,6 +222,28 @@ export function unarchiveSync(syncId: string): void {
   markDirty();
 }
 
+export function deleteSync(syncId: string): void {
+  const sync = currentState.syncs[syncId];
+  if (!sync) return;
+  
+  // Only allow deleting archived syncs
+  if (!sync.archived) {
+    throw new Error('Cannot delete a sync that is not archived. Archive it first.');
+  }
+  
+  // Delete all repos in this sync
+  for (const repoId of Object.keys(currentState.repos)) {
+    if (currentState.repos[repoId].syncId === syncId) {
+      delete currentState.repos[repoId];
+    }
+  }
+  
+  // Delete the sync
+  delete currentState.syncs[syncId];
+  
+  markDirty();
+}
+
 export function markSyncReposUnknown(syncId: string): void {
   for (const repo of Object.values(currentState.repos)) {
     if (repo.syncId === syncId && !repo.archived) {

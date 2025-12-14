@@ -139,7 +139,7 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction): v
 }
 
 /**
- * Check if a user can enable admin mode (first user to enable becomes admin)
+ * Enable admin mode. Retains existing admin list if re-enabling, adds enabler if not already admin.
  */
 export async function enableAdminMode(enablerEmail: string): Promise<{ success: boolean; message: string }> {
   const adminConfig = state.getAdminConfig();
@@ -148,15 +148,26 @@ export async function enableAdminMode(enablerEmail: string): Promise<{ success: 
     return { success: false, message: 'Admin mode is already enabled' };
   }
 
-  // Enable admin mode and add the enabler as the first admin
+  // Preserve existing admin list, add enabler if not already present
+  const existingAdmins = adminConfig.admins || [];
+  const admins = existingAdmins.includes(enablerEmail) 
+    ? existingAdmins 
+    : [...existingAdmins, enablerEmail];
+
   await state.setAdminConfig({
     enabled: true,
-    admins: [enablerEmail]
+    admins
   });
 
   serverLog.info(`Admin mode enabled by ${enablerEmail}`);
   
-  return { success: true, message: `Admin mode enabled. ${enablerEmail} is now an administrator.` };
+  const message = existingAdmins.length > 0 && existingAdmins.includes(enablerEmail)
+    ? 'Admin mode enabled. Previous administrator list restored.'
+    : existingAdmins.length > 0
+    ? `Admin mode enabled. ${enablerEmail} added to existing administrators.`
+    : `Admin mode enabled. ${enablerEmail} is now an administrator.`;
+  
+  return { success: true, message };
 }
 
 /**

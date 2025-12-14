@@ -3,6 +3,7 @@ import {
   PutItemCommand, 
   ScanCommand,
   GetItemCommand,
+  DeleteItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { randomUUID } from 'crypto';
@@ -304,6 +305,36 @@ export async function unarchiveSync(syncId: string): Promise<void> {
       await persistRepo(repo);
     }
   }
+}
+
+export async function deleteSync(syncId: string): Promise<void> {
+  const sync = syncCache.get(syncId);
+  if (!sync) return;
+  
+  // Only allow deleting archived syncs
+  if (!sync.archived) {
+    throw new Error('Cannot delete a sync that is not archived. Archive it first.');
+  }
+  
+  const client = getDynamoClient();
+  
+  // Delete all repos in this sync from DynamoDB and cache
+  for (const [repoId, repo] of repoCache.entries()) {
+    if (repo.syncId === syncId) {
+      await client.send(new DeleteItemCommand({
+        TableName: TABLE_NAME,
+        Key: marshall({ pk: 'REPO', sk: `REPO#${repoId}` })
+      }));
+      repoCache.delete(repoId);
+    }
+  }
+  
+  // Delete the sync from DynamoDB and cache
+  await client.send(new DeleteItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: 'SYNC', sk: `SYNC#${syncId}` })
+  }));
+  syncCache.delete(syncId);
 }
 
 export async function markSyncReposUnknown(syncId: string): Promise<void> {

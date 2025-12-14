@@ -697,6 +697,31 @@ function startServer() {
     }
   });
 
+  // Permanently delete sync (must be archived first)
+  router.delete('/api/syncs/:id/permanent', requireAdmin, async (req, res) => {
+    try {
+      const syncId = req.params.id;
+      const sync = state.getSyncConfig(syncId);
+      
+      if (!sync) {
+        return res.status(404).json({ error: 'Sync not found' });
+      }
+      
+      if (!sync.archived) {
+        return res.status(400).json({ error: 'Sync must be archived before it can be permanently deleted' });
+      }
+      
+      const syncName = sync.name;
+      await state.deleteSync(syncId);
+      await state.saveStateImmediate();
+      broadcastStateUpdate();
+      
+      res.json({ success: true, message: `Sync "${syncName}" permanently deleted` });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
   // Validate sync credentials
   router.post('/api/syncs/:id/validate', requireAdmin, async (req, res) => {
     try {
@@ -1026,7 +1051,7 @@ async function runDiscoveryWorkerTick(generation: number) {
   const runIntervalMinutes = getWorkerConfig().discovery.runIntervalMinutes;
   const nextRunMs = runIntervalMinutes * 60 * 1000;
   discoveryWorkerNextRunAt = new Date(Date.now() + nextRunMs).toISOString();
-  discoveryLog.info(`Next run in ${runIntervalMinutes} minutes`);
+  discoveryLog.debug(`Next run in ${runIntervalMinutes} minutes`);
   broadcastStateUpdate();
   discoveryWorkerInterval = setTimeout(() => runDiscoveryWorkerTick(generation), nextRunMs);
 }

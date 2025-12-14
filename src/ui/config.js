@@ -429,7 +429,8 @@ function renderSyncsList() {
                         <button class="btn btn-small" onclick="copySync('${sync.id}')" title="Copy">📋</button>
                         <button class="btn btn-small" onclick="triggerDiscovery('${sync.id}')" title="Discover repos">🔍</button>
                         ${sync.archived 
-                            ? `<button class="btn btn-small" onclick="unarchiveSync('${sync.id}')" title="Unarchive">📤</button>`
+                            ? `<button class="btn btn-small" onclick="unarchiveSync('${sync.id}')" title="Unarchive">📤</button>
+                               <button class="btn btn-small btn-danger" onclick="deleteSync('${sync.id}')" title="Delete permanently">🗑️</button>`
                             : `<button class="btn btn-small" onclick="archiveSync('${sync.id}')" title="Archive">📥</button>`
                         }
                     </div>
@@ -813,6 +814,25 @@ async function unarchiveSync(syncId) {
     }
 }
 
+async function deleteSync(syncId) {
+    const sync = state.syncs[syncId];
+    if (!confirm(`Permanently delete sync "${sync.name}"?\n\nThis will permanently remove the sync configuration and all ${Object.values(state.repos).filter(r => r.syncId === syncId).length} associated repositories.\n\nThis action cannot be undone!`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/syncs/${syncId}/permanent`, { method: 'DELETE' });
+        if (!response.ok) {
+            const error = await response.json();
+            alert(`Error: ${error.error || response.statusText}`);
+            return;
+        }
+        await loadState();
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
 async function triggerDiscovery(syncId) {
     try {
         const response = await fetch(`/api/syncs/${syncId}/discover`, { method: 'POST' });
@@ -1012,62 +1032,66 @@ async function loadAuthInfo() {
 function renderAdminSection() {
     if (!authInfo) return;
     
-    // Render current user info
+    // Render current user info in top left
     const userInfoEl = document.getElementById('current-user-info');
+    const headerControlsEl = document.getElementById('admin-header-controls');
+    
     if (authInfo.user) {
-        const statusBadge = authInfo.isAdmin 
-            ? '<span class="badge badge-admin" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">Administrator</span>'
-            : '<span class="badge badge-readonly" style="background: #6c757d; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">Read-Only</span>';
+        const userName = authInfo.user.name || authInfo.user.email?.split('@')[0] || 'Unknown';
+        const userEmail = authInfo.user.email || authInfo.user.identifier || '';
+        const statusBadge = adminConfig?.enabled 
+            ? (authInfo.isAdmin 
+                ? '<span class="badge badge-admin">Admin</span>'
+                : '<span class="badge badge-readonly">Read-Only</span>')
+            : '<span class="badge" style="background: var(--bg-tertiary); color: var(--text-secondary);">Full Access</span>';
         
         userInfoEl.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <span><strong>${escapeHtml(authInfo.user.name || authInfo.user.email || 'Unknown')}</strong></span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <strong>${escapeHtml(userName)}</strong>
+                <span style="color: var(--text-secondary); font-size: 13px;">${escapeHtml(userEmail)}</span>
                 ${statusBadge}
-            </div>
-            <div style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;">
-                ${escapeHtml(authInfo.user.email || authInfo.user.identifier || '')}
             </div>
         `;
     } else {
         userInfoEl.innerHTML = `
-            <p style="color: var(--text-secondary);">Not logged in (running locally without ALB OIDC)</p>
-            <p class="field-hint" style="margin-top: 5px;">
-                To test authentication locally, set <code>LOCAL_DEV_USER=your@email.com</code> environment variable.
-            </p>
+            <div style="color: var(--text-secondary); font-size: 13px;">
+                Not logged in. Set <code>LOCAL_DEV_USER=email</code> to test locally.
+            </div>
         `;
     }
     
     // Show/hide admin mode controls based on state
     const disabledDiv = document.getElementById('admin-mode-disabled');
     const enabledDiv = document.getElementById('admin-mode-enabled');
-    const adminListSection = document.getElementById('admin-list-section');
     const readOnlyNotice = document.getElementById('read-only-notice');
     const enableBtn = document.getElementById('enable-admin-btn');
-    const disableBtn = document.getElementById('disable-admin-btn');
     
     if (adminConfig?.enabled) {
         disabledDiv.style.display = 'none';
-        enabledDiv.style.display = 'block';
         
-        // Only show admin list and controls if user is admin
         if (authInfo.isAdmin) {
-            adminListSection.style.display = 'block';
+            enabledDiv.style.display = 'block';
             readOnlyNotice.style.display = 'none';
-            disableBtn.disabled = false;
+            headerControlsEl.innerHTML = `
+                <button class="btn btn-small btn-danger" onclick="disableAdminMode()" id="disable-admin-btn">
+                    Disable Admin Mode
+                </button>
+            `;
             renderAdminList();
+            setupAdminInput();
         } else {
-            adminListSection.style.display = 'none';
+            enabledDiv.style.display = 'none';
             readOnlyNotice.style.display = 'block';
-            disableBtn.disabled = true;
+            headerControlsEl.innerHTML = '';
         }
     } else {
         disabledDiv.style.display = 'block';
         enabledDiv.style.display = 'none';
-        adminListSection.style.display = 'none';
         readOnlyNotice.style.display = 'none';
+        headerControlsEl.innerHTML = '';
         
         // Enable button only if user is identified
-        enableBtn.disabled = !authInfo.user;
+        if (enableBtn) enableBtn.disabled = !authInfo.user;
     }
 }
 
@@ -1075,21 +1099,41 @@ function renderAdminList() {
     const adminListEl = document.getElementById('admin-list');
     
     if (!adminConfig?.admins || adminConfig.admins.length === 0) {
-        adminListEl.innerHTML = '<p style="color: var(--text-secondary);">No administrators configured.</p>';
+        adminListEl.innerHTML = '<p style="color: var(--text-secondary); margin: 0;">No administrators configured.</p>';
         return;
     }
     
-    const currentUser = authInfo?.user?.email || authInfo?.user?.identifier;
+    const currentUserEmail = (authInfo?.user?.email || authInfo?.user?.identifier || '').toLowerCase();
     
-    adminListEl.innerHTML = adminConfig.admins.map(email => `
-        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 8px;">
-            <span>${escapeHtml(email)}</span>
-            <button class="btn btn-small btn-danger" onclick="removeAdmin('${escapeHtml(email)}')" 
-                    ${adminConfig.admins.length === 1 ? 'disabled title="Cannot remove the last administrator"' : ''}>
-                Remove
-            </button>
-        </div>
-    `).join('');
+    adminListEl.innerHTML = adminConfig.admins.map(email => {
+        const isCurrentUser = email.toLowerCase() === currentUserEmail;
+        const isLastAdmin = adminConfig.admins.length === 1;
+        const canRemove = !isCurrentUser && !isLastAdmin;
+        const disabledReason = isCurrentUser ? 'Cannot remove yourself' : (isLastAdmin ? 'Cannot remove the last administrator' : '');
+        
+        return `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 4px;">
+                <span style="font-size: 14px;">${escapeHtml(email)}${isCurrentUser ? ' <span style="color: var(--text-secondary);">(you)</span>' : ''}</span>
+                <button class="btn btn-small btn-danger" onclick="removeAdmin('${escapeHtml(email)}')" 
+                        ${!canRemove ? `disabled title="${disabledReason}"` : ''} style="padding: 2px 8px; font-size: 11px;">
+                    Remove
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+function setupAdminInput() {
+    const emailInput = document.getElementById('new-admin-email');
+    if (emailInput && !emailInput.dataset.listenerAdded) {
+        emailInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addNewAdmin();
+            }
+        });
+        emailInput.dataset.listenerAdded = 'true';
+    }
 }
 
 async function enableAdminMode() {
@@ -1142,7 +1186,7 @@ async function addNewAdmin() {
     const email = emailInput.value.trim().toLowerCase();
     
     if (!email) {
-        alert('Please enter an email address.');
+        emailInput.focus();
         return;
     }
     
@@ -1157,11 +1201,15 @@ async function addNewAdmin() {
         if (response.ok) {
             emailInput.value = '';
             await loadAuthInfo();
+            // Focus input for adding another admin
+            emailInput.focus();
         } else {
             alert(`Error: ${result.message || result.error}`);
+            emailInput.focus();
         }
     } catch (error) {
         alert(`Error: ${error.message}`);
+        emailInput.focus();
     }
 }
 

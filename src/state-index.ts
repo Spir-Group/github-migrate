@@ -55,6 +55,7 @@ export const createSync = impl.createSync;
 export const updateSync = impl.updateSync;
 export const archiveSync = impl.archiveSync;
 export const unarchiveSync = impl.unarchiveSync;
+export const deleteSync = impl.deleteSync;
 export const markSyncReposUnknown = impl.markSyncReposUnknown;
 export const updateSyncLastSynced = impl.updateSyncLastSynced;
 export const createRepo = impl.createRepo;

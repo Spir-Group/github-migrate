@@ -48,6 +48,15 @@ body {
     white-space: nowrap;
 }
 
+.site-title-link {
+    text-decoration: none;
+    color: inherit;
+}
+
+.site-title-link:hover .site-title {
+    opacity: 0.8;
+}
+
 .site-branding {
     display: flex;
     flex-direction: column;
@@ -378,12 +387,19 @@ h1 {
 
 .sync-badge {
     display: inline-block;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
-    background: var(--bg-tertiary);
+    font-size: 13px;
     color: var(--text-secondary);
-    border: 1px solid var(--border-color);
+}
+
+/* Repository name column */
+.repo-name {
+    font-size: 13px;
+    font-weight: normal;
+}
+
+/* Nowrap columns for commit and size */
+.nowrap {
+    white-space: nowrap;
 }
 
 /* Buttons */
@@ -571,8 +587,9 @@ thead {
 
 th {
     text-align: left;
-    padding: 12px;
+    padding: 8px 12px;
     font-weight: 600;
+    font-size: 11px;
     color: var(--text-primary);
     border-bottom: 1px solid var(--border-color);
 }
@@ -615,6 +632,7 @@ tbody tr:hover {
 
 td {
     padding: 12px;
+    font-size: 15px;
 }
 
 .actions-column {
@@ -1176,20 +1194,22 @@ button:disabled,
     font-size: 16px;
 }
 
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
 .badge-admin {
     background: #28a745;
     color: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 12px;
 }
 
 .badge-readonly {
     background: #6c757d;
     color: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 12px;
 }
 
 #read-only-notice {

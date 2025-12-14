@@ -53,7 +53,7 @@ export async function checkOldestReposForSync(
     if (reposNeedingCheck.length === 0) {
       return 0;
     }
-    statusLog.info(`Rechecking ${reposNeedingCheck.length} repositories for sync "${config.name}"...`);
+    statusLog.debug(`Rechecking ${reposNeedingCheck.length} repositories for sync "${config.name}"...`);
   }
 
   for (const repo of reposNeedingCheck) {

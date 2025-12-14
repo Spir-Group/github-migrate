@@ -10,10 +10,10 @@ export async function discoverRepositoriesForSync(
   config: SyncRuntimeConfig, 
   onUpdate?: () => void
 ): Promise<void> {
-  discoveryLog.info(`Discovering repositories for sync "${config.name}" from ${config.source.org}...`);
+  discoveryLog.debug(`Discovering repositories for sync "${config.name}" from ${config.source.org}...`);
   
   const repos = await fetchRepositories(config.source);
-  discoveryLog.info(`Found ${repos.length} repositories in ${config.source.org}`);
+  discoveryLog.debug(`Found ${repos.length} repositories in ${config.source.org}`);
 
   let newRepoCount = 0;
   let archivedRepoCount = 0;
@@ -50,7 +50,7 @@ export async function discoverRepositoriesForSync(
     discoveryLog.info(`Archived ${archivedRepoCount} repositories for sync "${config.name}"`);
   }
   if (newRepoCount === 0 && archivedRepoCount === 0) {
-    discoveryLog.info(`No changes to repository list for sync "${config.name}"`);
+    discoveryLog.debug(`No changes to repository list for sync "${config.name}"`)
   }
 
   await state.saveState();

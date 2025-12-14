@@ -228,10 +228,10 @@ function renderTable(repos) {
         const syncName = sync ? sync.name : 'Unknown';
         const elapsed = formatElapsedTime(repo);
         const statusClass = `status-${repo.status}`;
-        const lastUpdate = repo.lastUpdate ? formatTimestamp(repo.lastUpdate) : '-';
-        const lastChecked = repo.lastChecked ? formatTimestamp(repo.lastChecked) : '-';
-        const startedAt = repo.startedAt ? formatTimestamp(repo.startedAt) : '-';
-        const lastPushed = repo.lastPushed ? formatTimestamp(repo.lastPushed, true) : '-';
+        const lastUpdate = repo.lastUpdate ? formatTimestampWithTitle(repo.lastUpdate) : '-';
+        const lastChecked = repo.lastChecked ? formatTimestampWithTitle(repo.lastChecked) : '-';
+        const startedAt = repo.startedAt ? formatTimestampWithTitle(repo.startedAt) : '-';
+        const lastPushed = repo.lastPushed ? formatTimestampWithTitle(repo.lastPushed, true) : '-';
         const size = repo.metadata?.size ? formatSize(repo.metadata.size) : '-';
         const showElapsedTime = repo.status !== 'failed' && repo.status !== 'unsynced';
         const elapsedDisplay = showElapsedTime ? elapsed : '-';
@@ -240,13 +240,13 @@ function renderTable(repos) {
         return `
             <tr${titleAttr}>
                 <td><span class="sync-badge" title="${escapeHtml(syncName)}">${escapeHtml(syncName.substring(0, 15))}${syncName.length > 15 ? '...' : ''}</span></td>
-                <td><strong>${escapeHtml(repo.name)}</strong></td>
+                <td><span class="repo-name">${escapeHtml(repo.name)}</span></td>
                 <td><span class="status-badge ${statusClass}">${getStatusLabel(repo.status)}</span></td>
-                <td class="timestamp">${lastUpdate}</td>
-                <td class="timestamp">${lastChecked}</td>
-                <td class="timestamp">${startedAt}</td>
-                <td class="timestamp">${lastPushed}</td>
-                <td class="timestamp">${size}</td>
+                <td class="timestamp nowrap">${lastUpdate}</td>
+                <td class="timestamp nowrap">${lastChecked}</td>
+                <td class="timestamp nowrap">${startedAt}</td>
+                <td class="timestamp nowrap">${lastPushed}</td>
+                <td class="timestamp nowrap">${size}</td>
                 <td class="timestamp" data-repo="${escapeHtml(repo.id)}">${elapsedDisplay}</td>
                 <td>
                     <button onclick="viewDetails('${escapeHtml(repo.id)}')">Details</button>
@@ -542,10 +542,19 @@ function formatTimestamp(isoString, useShortDate = false) {
     if (diffSeconds < 3600) return `${Math.floor(diffSeconds / 60)}m ago`;
     if (diffSeconds < 86400) return `${Math.floor(diffSeconds / 3600)}h ago`;
     
+    // More than 24 hours ago - show just the date
     if (useShortDate) {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     }
-    return date.toLocaleString();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatTimestampWithTitle(isoString, useShortDate = false) {
+    if (!isoString) return '-';
+    const date = new Date(isoString);
+    const fullDateTime = date.toLocaleString();
+    const display = formatTimestamp(isoString, useShortDate);
+    return `<span title="${escapeHtml(fullDateTime)}">${display}</span>`;
 }
 
 function setupFilters() {
