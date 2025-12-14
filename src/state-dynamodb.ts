@@ -2,6 +2,7 @@ import {
   DynamoDBClient, 
   PutItemCommand, 
   ScanCommand,
+  GetItemCommand,
 } from '@aws-sdk/client-dynamodb';
 import { marshall, unmarshall } from '@aws-sdk/util-dynamodb';
 import { randomUUID } from 'crypto';
@@ -12,11 +13,13 @@ import {
   MigrationStatus, 
   RepoVisibility,
   SyncRuntimeConfig,
-  HostConfig
+  HostConfig,
+  WorkerConfig,
+  DEFAULT_WORKER_CONFIG
 } from './types';
 import { getPatsFromParameterStore, updatePatsInParameterStore } from './secrets';
 
-export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig };
+export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig };
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE || 'gitmigrate-state-dev';
 
@@ -33,6 +36,7 @@ function getDynamoClient(): DynamoDBClient {
 // In-memory cache for performance (refreshed on init)
 let syncCache: Map<string, SyncConfig> = new Map();
 let repoCache: Map<string, RepoState> = new Map();
+let workerConfigCache: WorkerConfig = { ...DEFAULT_WORKER_CONFIG };
 let cacheInitialized = false;
 
 // DynamoDB Key Patterns:
@@ -46,6 +50,33 @@ let cacheInitialized = false;
 export async function initState(): Promise<void> {
   console.log(`[${new Date().toISOString()}] Using DynamoDB table: ${TABLE_NAME}`);
   await refreshCache();
+  await loadWorkerConfig();
+}
+
+async function loadWorkerConfig(): Promise<void> {
+  try {
+    const client = getDynamoClient();
+    const result = await client.send(new GetItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk: 'CONFIG', sk: 'WORKER_CONFIG' }),
+    }));
+    
+    if (result.Item) {
+      const item = unmarshall(result.Item);
+      const loaded = item.data as Partial<WorkerConfig>;
+      // Deep merge with defaults to handle missing fields
+      workerConfigCache = {
+        status: { ...DEFAULT_WORKER_CONFIG.status, ...loaded.status },
+        migration: { ...DEFAULT_WORKER_CONFIG.migration, ...loaded.migration },
+        progress: { ...DEFAULT_WORKER_CONFIG.progress, ...loaded.progress },
+      };
+      console.log(`[${new Date().toISOString()}] Loaded worker config from DynamoDB`);
+    } else {
+      console.log(`[${new Date().toISOString()}] No worker config in DynamoDB, using defaults`);
+    }
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error loading worker config, using defaults:`, error);
+  }
 }
 
 async function refreshCache(): Promise<void> {
@@ -489,6 +520,35 @@ export function getElapsedSeconds(repo: RepoState): number {
   }
   
   return 0;
+}
+
+// ============================================
+// Worker Config
+// ============================================
+
+export function getWorkerConfig(): WorkerConfig {
+  return workerConfigCache;
+}
+
+export async function setWorkerConfig(config: WorkerConfig): Promise<void> {
+  workerConfigCache = config;
+  await persistWorkerConfig(config);
+}
+
+async function persistWorkerConfig(config: WorkerConfig): Promise<void> {
+  const client = getDynamoClient();
+  
+  await client.send(new PutItemCommand({
+    TableName: TABLE_NAME,
+    Item: marshall({
+      pk: 'CONFIG',
+      sk: 'WORKER_CONFIG',
+      data: config,
+      updatedAt: new Date().toISOString()
+    }, { removeUndefinedValues: true })
+  }));
+  
+  console.log(`[${new Date().toISOString()}] Saved worker config to DynamoDB`);
 }
 
 // ============================================

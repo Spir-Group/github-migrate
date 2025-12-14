@@ -8,15 +8,18 @@ import {
   MigrationStatus, 
   RepoVisibility,
   SyncRuntimeConfig,
-  HostConfig
+  HostConfig,
+  WorkerConfig,
+  DEFAULT_WORKER_CONFIG
 } from './types';
 import { loadAndMigrateState } from './migration';
 
-export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig };
+export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig };
 
 // Use DATA_DIR env var if set, otherwise default to ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const STATE_FILE = path.join(DATA_DIR, 'migrations-state.json');
+const WORKER_CONFIG_FILE = path.join(DATA_DIR, 'worker-config.json');
 const DEBOUNCE_MS = 10000; // 10 seconds
 
 let writeMutex = Promise.resolve();
@@ -30,12 +33,35 @@ let currentState: AppState = {
   repos: {}
 };
 
+let workerConfig: WorkerConfig = { ...DEFAULT_WORKER_CONFIG };
+
 // ============================================
 // Initialization
 // ============================================
 
 export function initState(): void {
   currentState = loadAndMigrateState();
+  loadWorkerConfig();
+}
+
+function loadWorkerConfig(): void {
+  try {
+    if (fs.existsSync(WORKER_CONFIG_FILE)) {
+      const data = fs.readFileSync(WORKER_CONFIG_FILE, 'utf8');
+      const loaded = JSON.parse(data) as Partial<WorkerConfig>;
+      // Deep merge with defaults to handle missing fields
+      workerConfig = {
+        status: { ...DEFAULT_WORKER_CONFIG.status, ...loaded.status },
+        migration: { ...DEFAULT_WORKER_CONFIG.migration, ...loaded.migration },
+        progress: { ...DEFAULT_WORKER_CONFIG.progress, ...loaded.progress },
+      };
+      console.log(`[${new Date().toISOString()}] Loaded worker config from ${WORKER_CONFIG_FILE}`);
+    } else {
+      console.log(`[${new Date().toISOString()}] No worker config file, using defaults`);
+    }
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error loading worker config, using defaults:`, error);
+  }
 }
 
 // ============================================
@@ -395,6 +421,32 @@ export function getElapsedSeconds(repo: RepoState): number {
   }
   
   return 0;
+}
+
+// ============================================
+// Worker Config
+// ============================================
+
+export function getWorkerConfig(): WorkerConfig {
+  return workerConfig;
+}
+
+export function setWorkerConfig(config: WorkerConfig): void {
+  workerConfig = config;
+  saveWorkerConfig();
+}
+
+function saveWorkerConfig(): void {
+  try {
+    const dir = path.dirname(WORKER_CONFIG_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(WORKER_CONFIG_FILE, JSON.stringify(workerConfig, null, 2), 'utf8');
+    console.log(`[${new Date().toISOString()}] Saved worker config to ${WORKER_CONFIG_FILE}`);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error saving worker config:`, error);
+  }
 }
 
 // ============================================

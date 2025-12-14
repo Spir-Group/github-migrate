@@ -11,6 +11,7 @@ import { pollMigrationStatusesForSync } from './workers/progressWorker';
 import { checkOldestReposForSync } from './workers/statusWorker';
 import { queueNextRepoForSync } from './workers/migrationWorker';
 import { getRepoLogsById } from './logs';
+import { WorkerConfig, DEFAULT_WORKER_CONFIG } from './types';
 
 const argv = yargs(hideBin(process.argv))
   .option('port', {
@@ -45,6 +46,12 @@ let migrationWorkerCurrentRepo: string | null = null;
 let progressWorkerRunning = false;
 let progressWorkerCurrentRepo: string | null = null;
 let healthCheckLogCount = 0;
+
+// Worker configuration is stored in state and persisted
+// Use getWorkerConfig() to access current values
+function getWorkerConfig(): WorkerConfig {
+  return state.getWorkerConfig();
+}
 
 // Base path for URL routing (for ALB path-based routing)
 const BASE_PATH = process.env.BASE_PATH || '';
@@ -182,6 +189,66 @@ function startServer() {
   router.get('/styles.css', (req, res) => {
     res.type('text/css');
     res.sendFile(path.join(uiDir, 'styles.css'));
+  });
+
+  // Configuration page
+  router.get('/config', (req, res) => {
+    res.sendFile(path.join(uiDir, 'config.html'));
+  });
+
+  router.get('/config.js', (req, res) => {
+    res.type('application/javascript');
+    res.sendFile(path.join(uiDir, 'config.js'));
+  });
+
+  // ==========================================
+  // App Info API
+  // ==========================================
+  
+  router.get('/api/info', (req, res) => {
+    res.json({
+      storageBackend: IS_CONTAINER ? 'DynamoDB' : 'Local File',
+      basePath: BASE_PATH || '/',
+    });
+  });
+
+  // ==========================================
+  // Worker Config API
+  // ==========================================
+  
+  router.get('/api/worker-config', (req, res) => {
+    res.json(getWorkerConfig());
+  });
+
+  router.put('/api/worker-config', async (req, res) => {
+    try {
+      const newConfig = req.body;
+      
+      // Validate and merge with defaults
+      const validatedConfig: WorkerConfig = {
+        status: {
+          checkIntervalSeconds: Math.max(10, Math.min(3600, newConfig.status?.checkIntervalSeconds || DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds)),
+          idleIntervalSeconds: Math.max(10, Math.min(3600, newConfig.status?.idleIntervalSeconds || DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds)),
+          batchSize: Math.max(1, Math.min(50, newConfig.status?.batchSize || DEFAULT_WORKER_CONFIG.status.batchSize)),
+        },
+        migration: {
+          maxConcurrentQueued: Math.max(1, Math.min(100, newConfig.migration?.maxConcurrentQueued || DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued)),
+          checkIntervalSeconds: Math.max(10, Math.min(3600, newConfig.migration?.checkIntervalSeconds || DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds)),
+        },
+        progress: {
+          pollIntervalSeconds: Math.max(10, Math.min(3600, newConfig.progress?.pollIntervalSeconds || DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds)),
+          staleTimeoutMinutes: Math.max(30, Math.min(1440, newConfig.progress?.staleTimeoutMinutes || DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes)),
+        },
+      };
+      
+      // Persist to state storage
+      await state.setWorkerConfig(validatedConfig);
+      
+      console.log(`[${new Date().toISOString()}] Worker config updated and persisted:`, validatedConfig);
+      res.json(validatedConfig);
+    } catch (error) {
+      res.status(400).json({ error: String(error) });
+    }
   });
 
   // ==========================================
@@ -693,11 +760,12 @@ async function runStatusWorkerTick() {
       const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
       if (!runtimeConfig) continue;
       
+      const config = getWorkerConfig();
       const checkedCount = await checkOldestReposForSync(
         runtimeConfig,
         broadcastStateUpdate,
-        60,
-        1,
+        config.status.checkIntervalSeconds,
+        config.status.batchSize,
         (repoName) => {
           statusWorkerCurrentRepo = `${sync.name}: ${repoName}`;
           broadcastStateUpdate();
@@ -712,12 +780,13 @@ async function runStatusWorkerTick() {
       totalChecked += checkedCount;
     }
     
-    // Schedule next tick
-    const delay = totalChecked > 0 ? 100 : 60000;
+    // Schedule next tick - use idle interval when no work found
+    const statusConfig = getWorkerConfig().status;
+    const delay = totalChecked > 0 ? 100 : statusConfig.idleIntervalSeconds * 1000;
     statusWorkerInterval = setTimeout(runStatusWorkerTick, delay);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in status worker:`, error);
-    statusWorkerInterval = setTimeout(runStatusWorkerTick, 60000);
+    statusWorkerInterval = setTimeout(runStatusWorkerTick, getWorkerConfig().status.idleIntervalSeconds * 1000);
   }
 }
 
@@ -751,6 +820,17 @@ async function runMigrationWorkerTick() {
   try {
     const syncs = state.getEnabledSyncs();
     let totalQueued = 0;
+    const migrationConfig = getWorkerConfig().migration;
+    
+    // Check how many are currently queued/syncing across all syncs
+    const allRepos = Object.values(state.getState().repos);
+    const inFlightCount = allRepos.filter(r => r.status === 'queued' || r.status === 'syncing').length;
+    
+    // Don't queue more if we're at max concurrent
+    if (inFlightCount >= migrationConfig.maxConcurrentQueued) {
+      migrationWorkerInterval = setTimeout(runMigrationWorkerTick, migrationConfig.checkIntervalSeconds * 1000);
+      return;
+    }
     
     for (const sync of syncs) {
       if (!migrationWorkerRunning) break;
@@ -760,6 +840,11 @@ async function runMigrationWorkerTick() {
       
       while (true) {
         if (!migrationWorkerRunning) break;
+        
+        // Check again if we've hit the limit
+        const currentInFlight = Object.values(state.getState().repos)
+          .filter(r => r.status === 'queued' || r.status === 'syncing').length;
+        if (currentInFlight >= migrationConfig.maxConcurrentQueued) break;
         
         const repoName = await queueNextRepoForSync(runtimeConfig, (name) => {
           migrationWorkerCurrentRepo = `${sync.name}: ${name}`;
@@ -782,7 +867,7 @@ async function runMigrationWorkerTick() {
       console.log(`[${new Date().toISOString()}] Migration worker: Queued ${totalQueued} repo(s)`);
     }
     
-    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 30000);
+    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, migrationConfig.checkIntervalSeconds * 1000);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in migration worker:`, error);
     migrationWorkerCurrentRepo = null;
@@ -820,6 +905,7 @@ async function runProgressWorkerTick() {
   
   try {
     const syncs = state.getEnabledSyncs();
+    const progressConfig = getWorkerConfig().progress;
     
     for (const sync of syncs) {
       if (!progressWorkerRunning) break;
@@ -838,11 +924,12 @@ async function runProgressWorkerTick() {
           progressWorkerCurrentRepo = null;
           broadcastStateUpdate();
         },
-        () => !progressWorkerRunning
+        () => !progressWorkerRunning,
+        progressConfig.staleTimeoutMinutes
       );
     }
     
-    progressWorkerInterval = setTimeout(runProgressWorkerTick, 60000);
+    progressWorkerInterval = setTimeout(runProgressWorkerTick, progressConfig.pollIntervalSeconds * 1000);
   } catch (error) {
     console.error(`[${new Date().toISOString()}] Error in progress worker:`, error);
     progressWorkerCurrentRepo = null;

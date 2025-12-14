@@ -11,7 +11,8 @@ export async function pollMigrationStatusesForSync(
   onUpdate?: () => void,
   onRepoStart?: (repoName: string) => void,
   onRepoEnd?: () => void,
-  shouldStop?: () => boolean
+  shouldStop?: () => boolean,
+  staleTimeoutMinutes: number = 120
 ): Promise<void> {
   const incomplete = state.listIncompleteBySyncId(config.id);
   
@@ -28,7 +29,7 @@ export async function pollMigrationStatusesForSync(
     
     if (onRepoStart) onRepoStart(repo.name);
     
-    await pollSingleRepo(config, repo, onUpdate);
+    await pollSingleRepo(config, repo, onUpdate, staleTimeoutMinutes);
     
     if (onRepoEnd) onRepoEnd();
   }
@@ -39,8 +40,11 @@ export async function pollMigrationStatusesForSync(
 async function pollSingleRepo(
   config: SyncRuntimeConfig, 
   repo: state.RepoState, 
-  onUpdate?: () => void
+  onUpdate?: () => void,
+  staleTimeoutMinutes: number = 120
 ): Promise<void> {
+  const staleTimeoutMs = staleTimeoutMinutes * 60 * 1000;
+  
   if (!repo.migrationId) {
     // Check if repo has been in-progress too long without migration ID
     if (repo.startedAt && !repo.endedAt) {
@@ -48,8 +52,8 @@ async function pollSingleRepo(
       const now = Date.now();
       const elapsedMs = now - startTime;
       
-      if (elapsedMs > 60000) {
-        console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000)}s without migration ID, marking as unknown`);
+      if (elapsedMs > staleTimeoutMs) {
+        console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000 / 60)}m without migration ID, marking as unknown`);
         await state.setStatus(repo.id, 'unknown', 'Migration status lost - may have completed or failed');
         if (onUpdate) onUpdate();
       }
@@ -66,8 +70,8 @@ async function pollSingleRepo(
         const now = Date.now();
         const elapsedMs = now - startTime;
         
-        if (elapsedMs > 60000) {
-          console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} migration not found after ${Math.round(elapsedMs / 1000)}s, marking as unknown`);
+        if (elapsedMs > staleTimeoutMs) {
+          console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} migration not found after ${Math.round(elapsedMs / 1000 / 60)}m, marking as unknown`);
           await state.setStatus(repo.id, 'unknown', 'Migration status not found - may have completed or failed');
           if (onUpdate) onUpdate();
         }

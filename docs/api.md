@@ -10,11 +10,29 @@ GET /
 ```
 Returns the dashboard HTML page.
 
+### Get Configuration Page
+```
+GET /config
+```
+Returns the configuration page HTML.
+
 ### Get State
 ```
 GET /api/state
 ```
 Returns the current migration state as JSON.
+
+### Get App Info
+```
+GET /api/info
+```
+Returns application information:
+```json
+{
+  "storageBackend": "DynamoDB",
+  "basePath": "/"
+}
+```
 
 ### Health Check
 ```
@@ -142,6 +160,57 @@ POST /api/progress-worker/stop
 }
 ```
 
+## Worker Configuration
+
+### Get Worker Config
+```
+GET /api/worker-config
+```
+Returns current worker configuration:
+```json
+{
+  "status": {
+    "checkIntervalSeconds": 60,
+    "idleIntervalSeconds": 60,
+    "batchSize": 1
+  },
+  "migration": {
+    "maxConcurrentQueued": 10,
+    "checkIntervalSeconds": 30
+  },
+  "progress": {
+    "pollIntervalSeconds": 60,
+    "staleTimeoutMinutes": 120
+  }
+}
+```
+
+### Update Worker Config
+```
+PUT /api/worker-config
+Content-Type: application/json
+
+{
+  "status": {
+    "checkIntervalSeconds": 30,
+    "idleIntervalSeconds": 120,
+    "batchSize": 5
+  },
+  "migration": {
+    "maxConcurrentQueued": 20,
+    "checkIntervalSeconds": 60
+  },
+  "progress": {
+    "pollIntervalSeconds": 30,
+    "staleTimeoutMinutes": 180
+  }
+}
+```
+
+Configuration is validated and persisted:
+- **Local mode**: Saved to `data/worker-config.json`
+- **Container mode**: Saved to DynamoDB (`pk=CONFIG`, `sk=WORKER_CONFIG`)
+
 ## Data Models
 
 ### SyncConfig
@@ -210,6 +279,25 @@ interface RepoState {
     commitCount?: number;
     branchCount?: number;
     archived?: boolean;
+  };
+}
+```
+
+### WorkerConfig
+```typescript
+interface WorkerConfig {
+  status: {
+    checkIntervalSeconds: number;  // How often to check repos (default: 60)
+    idleIntervalSeconds: number;   // Interval when no work found (default: 60)
+    batchSize: number;             // Repos to check per tick (default: 1)
+  };
+  migration: {
+    maxConcurrentQueued: number;   // Max migrations to queue (default: 10)
+    checkIntervalSeconds: number;  // How often to check for work (default: 30)
+  };
+  progress: {
+    pollIntervalSeconds: number;   // How often to poll progress (default: 60)
+    staleTimeoutMinutes: number;   // Mark as stale after this (default: 120)
   };
 }
 ```

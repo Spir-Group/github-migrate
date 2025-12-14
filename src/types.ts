@@ -127,3 +127,42 @@ export interface HostConfig {
   enterprise: string;
   org: string;
 }
+
+// Worker configuration - configurable intervals and limits
+export interface WorkerConfig {
+  status: {
+    checkIntervalSeconds: number;      // How often to check repos (default: 60)
+    idleIntervalSeconds: number;       // Interval when no work found (default: 60)
+    batchSize: number;                 // Repos to check per tick (default: 1)
+  };
+  migration: {
+    maxConcurrentQueued: number;       // Max migrations to queue (default: 10)
+    checkIntervalSeconds: number;      // How often to check for work (default: 30)
+  };
+  progress: {
+    pollIntervalSeconds: number;       // How often to poll migration progress (default: 60)
+    staleTimeoutMinutes: number;       // Mark as stale after this many minutes (default: 120)
+  };
+}
+
+// Default worker configuration
+export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
+  status: {
+    checkIntervalSeconds: 60,
+    idleIntervalSeconds: 60,
+    batchSize: 1,
+  },
+  migration: {
+    maxConcurrentQueued: 10,
+    checkIntervalSeconds: 30,
+  },
+  progress: {
+    pollIntervalSeconds: 60,
+    staleTimeoutMinutes: 120,
+  },
+};
+
+// Extended application state with worker config
+export interface AppStateWithConfig extends AppState {
+  workerConfig?: WorkerConfig;
+}

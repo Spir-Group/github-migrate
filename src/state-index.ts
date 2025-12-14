@@ -12,7 +12,8 @@ import {
   SyncConfig, 
   AppState, 
   SyncRuntimeConfig, 
-  HostConfig 
+  HostConfig,
+  WorkerConfig 
 } from './types';
 
 // Re-export types
@@ -23,7 +24,8 @@ export type {
   SyncConfig, 
   AppState, 
   SyncRuntimeConfig, 
-  HostConfig 
+  HostConfig,
+  WorkerConfig 
 };
 
 const USE_DYNAMODB = !!process.env.DYNAMODB_TABLE;
@@ -62,6 +64,8 @@ export const getSyncRuntimeConfig = impl.getSyncRuntimeConfig;
 export const saveState = impl.saveState;
 export const saveStateImmediate = impl.saveStateImmediate;
 export const flushPendingSaves = impl.flushPendingSaves;
+export const getWorkerConfig = impl.getWorkerConfig;
+export const setWorkerConfig = impl.setWorkerConfig;
 
 // ============================================
 // Sync functions (cache-based, safe to call without await)

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration - GitHub Migration Dashboard</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>Configuration</h1>
+                    <div id="info">Manage sync configurations and worker settings</div>
+                </div>
+                <div class="header-actions">
+                    <a href="/" class="btn">← Back to Dashboard</a>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Sync Configurations Section -->
+            <section class="config-section">
+                <div class="section-header">
+                    <h2>Sync Configurations</h2>
+                    <div class="section-actions">
+                        <label style="font-size: 14px; display: flex; align-items: center; gap: 5px;">
+                            <input type="checkbox" id="show-archived-syncs" onchange="toggleShowArchivedSyncs()">
+                            Show archived
+                        </label>
+                        <button class="btn btn-primary" onclick="openSyncModal()">+ Add Sync</button>
+                    </div>
+                </div>
+                <div id="syncs-list" class="syncs-list">
+                    <!-- Syncs will be rendered here -->
+                </div>
+            </section>
+
+            <!-- Worker Parameters Section -->
+            <section class="config-section">
+                <div class="section-header">
+                    <h2>Worker Parameters</h2>
+                    <button class="btn btn-primary" onclick="saveWorkerConfig()">Save Changes</button>
+                </div>
+                <div id="worker-config-saved" class="save-message" style="display: none;">
+                    ✓ Configuration saved
+                </div>
+                
+                <div class="worker-config-grid">
+                    <!-- Status Worker -->
+                    <div class="config-card">
+                        <h3>Status Worker (Checker)</h3>
+                        <p class="config-description">Checks if repositories need syncing by comparing source and target.</p>
+                        
+                        <div class="form-group">
+                            <label for="status-check-interval">Check Interval (seconds)</label>
+                            <input type="number" id="status-check-interval" min="10" max="3600" value="60">
+                            <span class="field-hint">How often to check repositories when actively working</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="status-idle-interval">Idle Interval (seconds)</label>
+                            <input type="number" id="status-idle-interval" min="10" max="3600" value="60">
+                            <span class="field-hint">Delay when no repositories need checking</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="status-batch-size">Batch Size</label>
+                            <input type="number" id="status-batch-size" min="1" max="50" value="1">
+                            <span class="field-hint">Number of repos to check per cycle</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Migration Worker -->
+                    <div class="config-card">
+                        <h3>Migration Worker (Queuer)</h3>
+                        <p class="config-description">Queues unsynced repositories for migration via GEI.</p>
+                        
+                        <div class="form-group">
+                            <label for="migration-max-concurrent">Max Concurrent Queued</label>
+                            <input type="number" id="migration-max-concurrent" min="1" max="100" value="10">
+                            <span class="field-hint">Maximum number of migrations to queue at once</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="migration-check-interval">Check Interval (seconds)</label>
+                            <input type="number" id="migration-check-interval" min="10" max="3600" value="30">
+                            <span class="field-hint">How often to look for new work</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Progress Worker -->
+                    <div class="config-card">
+                        <h3>Progress Worker (Reporter)</h3>
+                        <p class="config-description">Monitors migration progress and updates status.</p>
+                        
+                        <div class="form-group">
+                            <label for="progress-poll-interval">Poll Interval (seconds)</label>
+                            <input type="number" id="progress-poll-interval" min="10" max="3600" value="60">
+                            <span class="field-hint">How often to check migration progress</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="progress-stale-timeout">Stale Timeout (minutes)</label>
+                            <input type="number" id="progress-stale-timeout" min="30" max="1440" value="120">
+                            <span class="field-hint">Mark migration as stale after this time without updates</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Global Settings Section -->
+            <section class="config-section">
+                <div class="section-header">
+                    <h2>Global Settings</h2>
+                </div>
+                
+                <div class="global-settings">
+                    <div class="form-group">
+                        <label>Storage Backend</label>
+                        <div class="readonly-value" id="storage-backend">-</div>
+                        <span class="field-hint">Configured via environment variables</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Base Path</label>
+                        <div class="readonly-value" id="base-path">-</div>
+                        <span class="field-hint">URL base path for routing (from BASE_PATH env var)</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Active Syncs</label>
+                        <div class="readonly-value" id="active-syncs-count">-</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Total Repositories</label>
+                        <div class="readonly-value" id="total-repos-count">-</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Sync Config Modal -->
+    <div id="sync-modal" class="modal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2 id="sync-modal-title">Add Sync Configuration</h2>
+                <button class="close-btn" onclick="closeSyncModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="sync-form" onsubmit="saveSyncConfig(event)" autocomplete="off">
+                    <input type="hidden" id="sync-id" value="">
+                    
+                    <div class="form-group">
+                        <label for="sync-name">Name *</label>
+                        <input type="text" id="sync-name" required placeholder="e.g., GHES Production → GitHub.com">
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-column">
+                            <h3>Source</h3>
+                            <div class="form-group">
+                                <label for="source-enterprise">Enterprise *</label>
+                                <input type="text" id="source-enterprise" required placeholder="enterprise-slug">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-org">Organization *</label>
+                                <input type="text" id="source-org" required placeholder="org-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-url">API URL (leave empty for github.com)</label>
+                                <input type="text" id="source-url" placeholder="https://ghes.example.com/api/v3">
+                            </div>
+                            <div class="form-group">
+                                <label for="source-token">Personal Access Token *</label>
+                                <input type="password" id="source-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
+                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>. Must be SSO-authorized for the organization.</p>
+                            </div>
+                            <div id="source-validation-result" class="column-validation-result"></div>
+                        </div>
+                        <div class="form-column">
+                            <h3>Target</h3>
+                            <div class="form-group">
+                                <label for="target-enterprise">Enterprise *</label>
+                                <input type="text" id="target-enterprise" required placeholder="enterprise-slug">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-org">Organization *</label>
+                                <input type="text" id="target-org" required placeholder="org-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-url">API URL (leave empty for github.com)</label>
+                                <input type="text" id="target-url" placeholder="https://ghes.example.com/api/v3">
+                            </div>
+                            <div class="form-group">
+                                <label for="target-token">Personal Access Token *</label>
+                                <input type="password" id="target-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
+                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>, <code>delete_repo</code>. Must be SSO-authorized for the organization.</p>
+                            </div>
+                            <div id="target-validation-result" class="column-validation-result"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px;">
+                            <input type="checkbox" id="sync-enabled" checked>
+                            Enabled
+                        </label>
+                    </div>
+                    
+                    <div id="sync-dates" style="display: none; margin-top: 15px; padding: 15px; background: var(--bg-secondary); border-radius: 4px;">
+                        <div style="display: flex; gap: 30px;">
+                            <div><strong>Created:</strong> <span id="sync-created-at">-</span></div>
+                            <div><strong>Last Synced:</strong> <span id="sync-last-synced">-</span></div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="button" class="btn" onclick="validateSyncConfig()">Test Connection</button>
+                        <button type="button" class="btn" onclick="closeSyncModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                    
+                    <div id="sync-validation-error" class="validation-error" style="margin-top: 15px; display: none;"></div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="/config.js"></script>
+</body>
+</html>

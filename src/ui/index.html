@@ -25,26 +25,29 @@
                         </div>
                     </div>
                 </div>
-                <div class="workers-control">
-                    <div class="worker-row">
-                        <button class="worker-button" id="worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
-                        <div class="worker-info">
-                            <span class="worker-name" title="Worker that checks if unknown repos should be synced">Checker</span>
-                            <span class="worker-status" id="worker-status">Initializing...</span>
+                <div class="header-right">
+                    <a href="/config" class="btn" style="margin-bottom: 12px;">⚙️ Configuration</a>
+                    <div class="workers-control">
+                        <div class="worker-row">
+                            <button class="worker-button" id="worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
+                            <div class="worker-info">
+                                <span class="worker-name" title="Worker that checks if unknown repos should be synced">Checker</span>
+                                <span class="worker-status" id="worker-status">Initializing...</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="worker-row">
-                        <button class="worker-button" id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
-                        <div class="worker-info">
-                            <span class="worker-name" title="Worker that queues unsynced repos with GEI">Queuer</span>
-                            <span class="worker-status" id="migration-worker-status">Initializing...</span>
+                        <div class="worker-row">
+                            <button class="worker-button" id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
+                            <div class="worker-info">
+                                <span class="worker-name" title="Worker that queues unsynced repos with GEI">Queuer</span>
+                                <span class="worker-status" id="migration-worker-status">Initializing...</span>
+                            </div>
                         </div>
-                    </div>
-                    <div class="worker-row">
-                        <button class="worker-button" id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
-                        <div class="worker-info">
-                            <span class="worker-name" title="Worker that checks progress of migrations">Reporter</span>
-                            <span class="worker-status" id="progress-worker-status">Initializing...</span>
+                        <div class="worker-row">
+                            <button class="worker-button" id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
+                            <div class="worker-info">
+                                <span class="worker-name" title="Worker that checks progress of migrations">Reporter</span>
+                                <span class="worker-status" id="progress-worker-status">Initializing...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -52,26 +55,6 @@
         </header>
 
         <main>
-            <!-- Sync Config Section -->
-            <div class="sync-config-section">
-                <div class="sync-config-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <button class="btn btn-small collapse-toggle" id="sync-collapse-toggle" onclick="toggleSyncSection()" title="Toggle section">▼</button>
-                        <h2 style="margin: 0;">Sync Configurations</h2>
-                    </div>
-                    <div id="sync-header-controls" style="display: flex; gap: 10px; align-items: center;">
-                        <label style="font-size: 14px; display: flex; align-items: center; gap: 5px;">
-                            <input type="checkbox" id="show-archived-syncs" onchange="toggleShowArchivedSyncs()">
-                            Show archived
-                        </label>
-                        <button class="btn btn-primary" onclick="openSyncModal()">+ Add Sync</button>
-                    </div>
-                </div>
-                <div id="syncs-list" class="syncs-list">
-                    <!-- Syncs will be rendered here -->
-                </div>
-            </div>
-
             <div class="stats">
                 <div class="stat-box" onclick="filterByStatBox('all')" style="cursor: pointer;">
                     <div class="stat-label">Total</div>
@@ -151,93 +134,6 @@
                 </tbody>
             </table>
         </main>
-    </div>
-
-    <!-- Sync Config Modal -->
-    <div id="sync-modal" class="modal">
-        <div class="modal-content modal-wide">
-            <div class="modal-header">
-                <h2 id="sync-modal-title">Add Sync Configuration</h2>
-                <button class="close-btn" onclick="closeSyncModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form id="sync-form" onsubmit="saveSyncConfig(event)" autocomplete="off">
-                    <input type="hidden" id="sync-id" value="">
-                    
-                    <div class="form-group">
-                        <label for="sync-name">Name *</label>
-                        <input type="text" id="sync-name" required placeholder="e.g., GHES Production → GitHub.com">
-                    </div>
-                    
-                    <div class="form-row">
-                        <div class="form-column">
-                            <h3>Source</h3>
-                            <div class="form-group">
-                                <label for="source-enterprise">Enterprise *</label>
-                                <input type="text" id="source-enterprise" required placeholder="enterprise-slug">
-                            </div>
-                            <div class="form-group">
-                                <label for="source-org">Organization *</label>
-                                <input type="text" id="source-org" required placeholder="org-name">
-                            </div>
-                            <div class="form-group">
-                                <label for="source-url">API URL (leave empty for github.com)</label>
-                                <input type="text" id="source-url" placeholder="https://ghes.example.com/api/v3">
-                            </div>
-                            <div class="form-group">
-                                <label for="source-token">Personal Access Token *</label>
-                                <input type="password" id="source-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
-                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>. Must be SSO-authorized for the organization.</p>
-                            </div>
-                            <div id="source-validation-result" class="column-validation-result"></div>
-                        </div>
-                        <div class="form-column">
-                            <h3>Target</h3>
-                            <div class="form-group">
-                                <label for="target-enterprise">Enterprise *</label>
-                                <input type="text" id="target-enterprise" required placeholder="enterprise-slug">
-                            </div>
-                            <div class="form-group">
-                                <label for="target-org">Organization *</label>
-                                <input type="text" id="target-org" required placeholder="org-name">
-                            </div>
-                            <div class="form-group">
-                                <label for="target-url">API URL (leave empty for github.com)</label>
-                                <input type="text" id="target-url" placeholder="https://ghes.example.com/api/v3">
-                            </div>
-                            <div class="form-group">
-                                <label for="target-token">Personal Access Token *</label>
-                                <input type="password" id="target-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
-                                <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>, <code>delete_repo</code>. Must be SSO-authorized for the organization.</p>
-                            </div>
-                            <div id="target-validation-result" class="column-validation-result"></div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; gap: 10px;">
-                            <input type="checkbox" id="sync-enabled" checked>
-                            Enabled
-                        </label>
-                    </div>
-                    
-                    <div id="sync-dates" style="display: none; margin-top: 15px; padding: 15px; background: var(--bg-secondary); border-radius: 4px;">
-                        <div style="display: flex; gap: 30px;">
-                            <div><strong>Created:</strong> <span id="sync-created-at">-</span></div>
-                            <div><strong>Last Synced:</strong> <span id="sync-last-synced">-</span></div>
-                        </div>
-                    </div>
-                    
-                    <div class="form-actions">
-                        <button type="button" class="btn" onclick="validateSyncConfig()">Test Connection</button>
-                        <button type="button" class="btn" onclick="closeSyncModal()">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Save</button>
-                    </div>
-                    
-                    <div id="sync-validation-error" class="validation-error" style="margin-top: 15px; display: none;"></div>
-                </form>
-            </div>
-        </div>
     </div>
 
     <!-- Modal for logs -->
