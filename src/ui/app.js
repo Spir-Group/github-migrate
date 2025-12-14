@@ -64,7 +64,7 @@ function renderState() {
     const syncs = Object.values(state.syncs);
     const activeSyncs = syncs.filter(s => !s.archived);
     document.getElementById('info').textContent = 
-        `${activeSyncs.length} org${activeSyncs.length !== 1 ? 's' : ''} being synced`;
+        `${activeSyncs.length} organization${activeSyncs.length !== 1 ? 's' : ''} being synced`;
 
     // Calculate stats (excluding archived repos)
     const repos = Object.values(state.repos).filter(r => !r.archived);
@@ -102,7 +102,7 @@ function updateSyncFilterDropdown() {
     
     let syncs = Object.values(state.syncs).filter(s => !s.archived);
     
-    select.innerHTML = '<option value="">All Syncs</option>' + 
+    select.innerHTML = '<option value="">All Organizations</option>' + 
         syncs.map(sync => `<option value="${sync.id}">${escapeHtml(sync.name)}</option>`).join('');
     
     // Restore previous selection if still valid
