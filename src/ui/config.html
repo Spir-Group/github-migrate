@@ -56,19 +56,19 @@
                         
                         <div class="form-group">
                             <label for="status-check-interval">Check Interval (seconds)</label>
-                            <input type="number" id="status-check-interval" min="10" max="3600" value="60">
+                            <input type="number" id="status-check-interval" min="10" max="3600" placeholder="60">
                             <span class="field-hint">How often to check repositories when actively working</span>
                         </div>
                         
                         <div class="form-group">
                             <label for="status-idle-interval">Idle Interval (seconds)</label>
-                            <input type="number" id="status-idle-interval" min="10" max="3600" value="60">
+                            <input type="number" id="status-idle-interval" min="10" max="3600" placeholder="60">
                             <span class="field-hint">Delay when no repositories need checking</span>
                         </div>
                         
                         <div class="form-group">
                             <label for="status-batch-size">Batch Size</label>
-                            <input type="number" id="status-batch-size" min="1" max="50" value="1">
+                            <input type="number" id="status-batch-size" min="1" max="50" placeholder="1">
                             <span class="field-hint">Number of repos to check per cycle</span>
                         </div>
                     </div>
@@ -80,13 +80,13 @@
                         
                         <div class="form-group">
                             <label for="migration-max-concurrent">Max Concurrent Queued</label>
-                            <input type="number" id="migration-max-concurrent" min="1" max="100" value="10">
+                            <input type="number" id="migration-max-concurrent" min="1" max="100" placeholder="10">
                             <span class="field-hint">Maximum number of migrations to queue at once</span>
                         </div>
                         
                         <div class="form-group">
                             <label for="migration-check-interval">Check Interval (seconds)</label>
-                            <input type="number" id="migration-check-interval" min="10" max="3600" value="30">
+                            <input type="number" id="migration-check-interval" min="10" max="3600" placeholder="30">
                             <span class="field-hint">How often to look for new work</span>
                         </div>
                     </div>
@@ -98,13 +98,13 @@
                         
                         <div class="form-group">
                             <label for="progress-poll-interval">Poll Interval (seconds)</label>
-                            <input type="number" id="progress-poll-interval" min="10" max="3600" value="60">
+                            <input type="number" id="progress-poll-interval" min="10" max="3600" placeholder="60">
                             <span class="field-hint">How often to check migration progress</span>
                         </div>
                         
                         <div class="form-group">
                             <label for="progress-stale-timeout">Stale Timeout (minutes)</label>
-                            <input type="number" id="progress-stale-timeout" min="30" max="1440" value="120">
+                            <input type="number" id="progress-stale-timeout" min="30" max="1440" placeholder="120">
                             <span class="field-hint">Mark migration as stale after this time without updates</span>
                         </div>
                     </div>

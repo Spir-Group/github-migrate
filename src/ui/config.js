@@ -5,6 +5,23 @@ let workerConfig = null;
 let eventSource = null;
 let showArchivedSyncs = false;
 
+// Default worker configuration values (must match server defaults)
+const DEFAULT_WORKER_CONFIG = {
+    status: {
+        checkIntervalSeconds: 60,
+        idleIntervalSeconds: 60,
+        batchSize: 1,
+    },
+    migration: {
+        maxConcurrentQueued: 10,
+        checkIntervalSeconds: 30,
+    },
+    progress: {
+        pollIntervalSeconds: 60,
+        staleTimeoutMinutes: 120,
+    },
+};
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadState();
@@ -89,34 +106,50 @@ function updateGlobalStats() {
 function populateWorkerConfigForm() {
     if (!workerConfig) return;
     
+    // Helper to set value only if different from default (otherwise show placeholder)
+    const setIfNotDefault = (id, value, defaultValue) => {
+        const el = document.getElementById(id);
+        if (value !== undefined && value !== defaultValue) {
+            el.value = value;
+        } else {
+            el.value = '';  // Clear to show placeholder with default
+        }
+    };
+    
     // Status worker
-    document.getElementById('status-check-interval').value = workerConfig.status?.checkIntervalSeconds || 60;
-    document.getElementById('status-idle-interval').value = workerConfig.status?.idleIntervalSeconds || 60;
-    document.getElementById('status-batch-size').value = workerConfig.status?.batchSize || 1;
+    setIfNotDefault('status-check-interval', workerConfig.status?.checkIntervalSeconds, DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds);
+    setIfNotDefault('status-idle-interval', workerConfig.status?.idleIntervalSeconds, DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds);
+    setIfNotDefault('status-batch-size', workerConfig.status?.batchSize, DEFAULT_WORKER_CONFIG.status.batchSize);
     
     // Migration worker
-    document.getElementById('migration-max-concurrent').value = workerConfig.migration?.maxConcurrentQueued || 10;
-    document.getElementById('migration-check-interval').value = workerConfig.migration?.checkIntervalSeconds || 30;
+    setIfNotDefault('migration-max-concurrent', workerConfig.migration?.maxConcurrentQueued, DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued);
+    setIfNotDefault('migration-check-interval', workerConfig.migration?.checkIntervalSeconds, DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds);
     
     // Progress worker
-    document.getElementById('progress-poll-interval').value = workerConfig.progress?.pollIntervalSeconds || 60;
-    document.getElementById('progress-stale-timeout').value = workerConfig.progress?.staleTimeoutMinutes || 120;
+    setIfNotDefault('progress-poll-interval', workerConfig.progress?.pollIntervalSeconds, DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds);
+    setIfNotDefault('progress-stale-timeout', workerConfig.progress?.staleTimeoutMinutes, DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes);
 }
 
 async function saveWorkerConfig() {
+    // Helper to get value or default
+    const getOrDefault = (id, defaultValue) => {
+        const val = document.getElementById(id).value;
+        return val !== '' ? parseInt(val) : defaultValue;
+    };
+    
     const config = {
         status: {
-            checkIntervalSeconds: parseInt(document.getElementById('status-check-interval').value) || 60,
-            idleIntervalSeconds: parseInt(document.getElementById('status-idle-interval').value) || 60,
-            batchSize: parseInt(document.getElementById('status-batch-size').value) || 1,
+            checkIntervalSeconds: getOrDefault('status-check-interval', DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds),
+            idleIntervalSeconds: getOrDefault('status-idle-interval', DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds),
+            batchSize: getOrDefault('status-batch-size', DEFAULT_WORKER_CONFIG.status.batchSize),
         },
         migration: {
-            maxConcurrentQueued: parseInt(document.getElementById('migration-max-concurrent').value) || 10,
-            checkIntervalSeconds: parseInt(document.getElementById('migration-check-interval').value) || 30,
+            maxConcurrentQueued: getOrDefault('migration-max-concurrent', DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued),
+            checkIntervalSeconds: getOrDefault('migration-check-interval', DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds),
         },
         progress: {
-            pollIntervalSeconds: parseInt(document.getElementById('progress-poll-interval').value) || 60,
-            staleTimeoutMinutes: parseInt(document.getElementById('progress-stale-timeout').value) || 120,
+            pollIntervalSeconds: getOrDefault('progress-poll-interval', DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds),
+            staleTimeoutMinutes: getOrDefault('progress-stale-timeout', DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes),
         },
     };
     
