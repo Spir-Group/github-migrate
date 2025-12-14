@@ -4,6 +4,17 @@ Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real
 
 ![screenshot](../screenshot.png)
 
+## Background
+
+This tool was created to support the [GitHub Enterprise Cloud migration](https://spirgroup.dev/docs/default/component/platform/platform/systems/github/migration_2025/) as outlined in [ADR-0002: GitHub Enterprise Cloud](https://spirgroup.dev/docs/default/component/platform/decisions/0002-github/).
+
+The decision to move to GitHub Enterprise Cloud with Managed Users requires migrating repositories from:
+
+- **Existing GitHub organizations** in the current enterprise (Ambita, Spir Data, Spir Group) to the new managed users enterprise at `spirgroup.ghe.com`
+- **Bitbucket Server** for Metria repositories
+
+GitHub Enterprise Importer (GEI) is GitHub's official tool for migrating repositories, preserving pull request history, issue references, and contributor mappings. This dashboard provides a centralized view and automation layer on top of GEI to manage large-scale migrations across multiple organizations.
+
 ## Features
 
 - **Multi-Sync Support**: Manage multiple source/target organization sync configurations
@@ -14,6 +25,10 @@ Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real
 - **Persistent State**: Progress saved to DynamoDB - resume anytime
 - **Migration Logs**: View detailed migration logs with automatic log discovery
 - **Error Handling**: Retry/resync failed migrations with automatic target cleanup
+- **Rate Limit Tracking**: Monitor GitHub API usage with visual indicators
+- **Live Application Logs**: Real-time log streaming with filtering and search
+- **Admin Mode**: Optional read-only mode for non-administrators
+- **Mobile-Responsive**: Hamburger menu and responsive layout for all screen sizes
 
 ## Limitations
 
@@ -41,6 +56,32 @@ npm run dev
 ```
 
 Access the dashboard at `http://localhost:3000`
+
+### Docker (Local File Storage)
+
+Build and run with the `data/` directory mounted for persistence:
+
+```bash
+npm run docker:build
+npm run docker:run
+```
+
+Or manually:
+
+```bash
+docker build -t github-migrate ./dist
+docker run --rm -p 3000:3000 -v $(pwd)/data:/app/data github-migrate
+```
+
+### Local with DynamoDB
+
+Connect to AWS DynamoDB by setting environment variables:
+
+```bash
+export DYNAMODB_TABLE=github-migrate-state-dev
+export SSM_PATS_PARAMETER=/container/github-migrate/dev/secrets/github-pats
+npm run dev
+```
 
 ### Production
 

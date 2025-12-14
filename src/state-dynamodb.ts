@@ -15,11 +15,14 @@ import {
   SyncRuntimeConfig,
   HostConfig,
   WorkerConfig,
-  DEFAULT_WORKER_CONFIG
+  DEFAULT_WORKER_CONFIG,
+  AdminConfig,
+  DEFAULT_ADMIN_CONFIG
 } from './types';
 import { getPatsFromParameterStore, updatePatsInParameterStore } from './secrets';
+import { stateLog } from './logger';
 
-export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig };
+export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig, AdminConfig };
 
 const TABLE_NAME = process.env.DYNAMODB_TABLE || 'gitmigrate-state-dev';
 
@@ -37,6 +40,7 @@ function getDynamoClient(): DynamoDBClient {
 let syncCache: Map<string, SyncConfig> = new Map();
 let repoCache: Map<string, RepoState> = new Map();
 let workerConfigCache: WorkerConfig = { ...DEFAULT_WORKER_CONFIG };
+let adminConfigCache: AdminConfig = { ...DEFAULT_ADMIN_CONFIG };
 let cacheInitialized = false;
 
 // DynamoDB Key Patterns:
@@ -48,9 +52,10 @@ let cacheInitialized = false;
 // ============================================
 
 export async function initState(): Promise<void> {
-  console.log(`[${new Date().toISOString()}] Using DynamoDB table: ${TABLE_NAME}`);
+  stateLog.info(`Using DynamoDB table: ${TABLE_NAME}`);
   await refreshCache();
   await loadWorkerConfig();
+  await loadAdminConfig();
 }
 
 async function loadWorkerConfig(): Promise<void> {
@@ -66,16 +71,17 @@ async function loadWorkerConfig(): Promise<void> {
       const loaded = item.data as Partial<WorkerConfig>;
       // Deep merge with defaults to handle missing fields
       workerConfigCache = {
+        discovery: { ...DEFAULT_WORKER_CONFIG.discovery, ...loaded.discovery },
         status: { ...DEFAULT_WORKER_CONFIG.status, ...loaded.status },
         migration: { ...DEFAULT_WORKER_CONFIG.migration, ...loaded.migration },
         progress: { ...DEFAULT_WORKER_CONFIG.progress, ...loaded.progress },
       };
-      console.log(`[${new Date().toISOString()}] Loaded worker config from DynamoDB`);
+      stateLog.info('Loaded worker config from DynamoDB');
     } else {
-      console.log(`[${new Date().toISOString()}] No worker config in DynamoDB, using defaults`);
+      stateLog.info('No worker config in DynamoDB, using defaults');
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error loading worker config, using defaults:`, error);
+    stateLog.error('Error loading worker config, using defaults', error);
   }
 }
 
@@ -109,7 +115,7 @@ async function refreshCache(): Promise<void> {
   } while (lastEvaluatedKey);
   
   cacheInitialized = true;
-  console.log(`[${new Date().toISOString()}] Loaded ${syncCache.size} syncs and ${repoCache.size} repos from DynamoDB`);
+  stateLog.info(`Loaded ${syncCache.size} syncs and ${repoCache.size} repos from DynamoDB`);
 }
 
 // ============================================
@@ -548,7 +554,60 @@ async function persistWorkerConfig(config: WorkerConfig): Promise<void> {
     }, { removeUndefinedValues: true })
   }));
   
-  console.log(`[${new Date().toISOString()}] Saved worker config to DynamoDB`);
+  stateLog.info('Saved worker config to DynamoDB');
+}
+
+// ============================================
+// Admin Config
+// ============================================
+
+async function loadAdminConfig(): Promise<void> {
+  try {
+    const client = getDynamoClient();
+    const result = await client.send(new GetItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk: 'CONFIG', sk: 'ADMIN_CONFIG' }),
+    }));
+    
+    if (result.Item) {
+      const item = unmarshall(result.Item);
+      const loaded = item.data as Partial<AdminConfig>;
+      adminConfigCache = {
+        enabled: loaded.enabled ?? DEFAULT_ADMIN_CONFIG.enabled,
+        admins: loaded.admins ?? DEFAULT_ADMIN_CONFIG.admins,
+      };
+      stateLog.info('Loaded admin config from DynamoDB');
+    } else {
+      stateLog.info('No admin config in DynamoDB, using defaults');
+    }
+  } catch (error) {
+    stateLog.error('Error loading admin config, using defaults', error);
+  }
+}
+
+export function getAdminConfig(): AdminConfig {
+  return adminConfigCache;
+}
+
+export async function setAdminConfig(config: AdminConfig): Promise<void> {
+  adminConfigCache = config;
+  await persistAdminConfig(config);
+}
+
+async function persistAdminConfig(config: AdminConfig): Promise<void> {
+  const client = getDynamoClient();
+  
+  await client.send(new PutItemCommand({
+    TableName: TABLE_NAME,
+    Item: marshall({
+      pk: 'CONFIG',
+      sk: 'ADMIN_CONFIG',
+      data: config,
+      updatedAt: new Date().toISOString()
+    }, { removeUndefinedValues: true })
+  }));
+  
+  stateLog.info('Saved admin config to DynamoDB');
 }
 
 // ============================================

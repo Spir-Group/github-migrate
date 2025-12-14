@@ -1,29 +1,66 @@
 let state = null;
+let authInfo = null;
 let eventSource = null;
 let sortColumn = 'lastUpdate';
 let sortDirection = 'desc';
 let activeFilters = new Set(['unknown', 'unsynced', 'queued', 'syncing', 'synced', 'failed']);
 let repoNameFilter = '';
 let syncFilter = ''; // Empty = all syncs
-let statusWorkerInfo = { running: false, currentRepo: null };
-let migrationWorkerInfo = { running: false, inProgress: 0, maxConcurrent: 10 };
-let progressWorkerInfo = { running: false, currentRepo: null };
+
+// Navigation toggle for mobile
+function toggleNav() {
+    const nav = document.getElementById('main-nav');
+    const toggle = document.getElementById('nav-toggle');
+    nav.classList.toggle('open');
+    toggle.classList.toggle('open');
+}
+
+// Close nav when clicking outside
+document.addEventListener('click', (e) => {
+    const nav = document.getElementById('main-nav');
+    const toggle = document.getElementById('nav-toggle');
+    if (nav && toggle && !nav.contains(e.target) && !toggle.contains(e.target)) {
+        nav.classList.remove('open');
+        toggle.classList.remove('open');
+    }
+});
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadState();
+    loadAuthInfo();
     connectSSE();
     startElapsedTimer();
     setupSorting();
     setupFilters();
     setupRepoFilter();
-    loadStatusWorkerInfo();
-    loadMigrationWorkerInfo();
-    loadProgressWorkerInfo();
-    setInterval(loadStatusWorkerInfo, 5000);
-    setInterval(loadMigrationWorkerInfo, 5000);
-    setInterval(loadProgressWorkerInfo, 5000);
+    loadRateLimits();
+    // Refresh rate limits every 30 seconds
+    setInterval(loadRateLimits, 30000);
 });
+
+async function loadAuthInfo() {
+    try {
+        const response = await fetch('/api/auth');
+        authInfo = await response.json();
+        updateReadOnlyState();
+    } catch (error) {
+        console.error('Failed to load auth info:', error);
+    }
+}
+
+function isReadOnly() {
+    return authInfo?.adminMode?.enabled && !authInfo?.isAdmin;
+}
+
+function updateReadOnlyState() {
+    if (!authInfo) return;
+    
+    // Re-render to apply read-only state
+    if (state) {
+        renderState();
+    }
+}
 
 async function loadState() {
     try {
@@ -59,12 +96,6 @@ function renderState() {
     
     // Update sync filter dropdown
     updateSyncFilterDropdown();
-
-    // Update header info
-    const syncs = Object.values(state.syncs);
-    const activeSyncs = syncs.filter(s => !s.archived);
-    document.getElementById('info').textContent = 
-        `${activeSyncs.length} organization${activeSyncs.length !== 1 ? 's' : ''} being synced`;
 
     // Calculate stats (excluding archived repos)
     const repos = Object.values(state.repos).filter(r => !r.archived);
@@ -220,11 +251,11 @@ function renderTable(repos) {
                 <td>
                     <button onclick="viewDetails('${escapeHtml(repo.id)}')">Details</button>
                     ${repo.status === 'failed' ? `
-                        <button onclick="retryRepo('${escapeHtml(repo.id)}')">Retry</button>
+                        <button onclick="retryRepo('${escapeHtml(repo.id)}')" ${isReadOnly() ? 'disabled title="Read-only mode"' : ''}>Retry</button>
                         ${repo.errorMessage ? `<button onclick="viewError('${escapeHtml(repo.id)}')">Errors</button>` : ''}
                         ${(repo.logs && repo.logs.cached) || repo.migrationId ? `<button onclick="viewLogs('${escapeHtml(repo.id)}')">Logs</button>` : ''}
                     ` : repo.status === 'synced' ? `
-                        <button onclick="retryRepo('${escapeHtml(repo.id)}')">Sync</button>
+                        <button onclick="retryRepo('${escapeHtml(repo.id)}')" ${isReadOnly() ? 'disabled title="Read-only mode"' : ''}>Sync</button>
                         ${(repo.logs && repo.logs.cached) || repo.migrationId ? `<button onclick="viewLogs('${escapeHtml(repo.id)}')">Logs</button>` : ''}
                     ` : ''}
                 </td>
@@ -417,7 +448,7 @@ function closeDetailsModal() {
 }
 
 // Close modals on backdrop click
-['logs-modal', 'details-modal'].forEach(id => {
+['logs-modal', 'details-modal', 'rate-limits-modal'].forEach(id => {
     document.getElementById(id)?.addEventListener('click', (e) => {
         if (e.target.id === id) {
             document.getElementById(id).classList.remove('show');
@@ -429,6 +460,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeLogsModal();
         closeDetailsModal();
+        closeRateLimitsModal();
     }
 });
 
@@ -591,125 +623,121 @@ function getStatusLabel(status) {
 }
 
 // ==========================================
-// Worker Controls
+// Rate Limits
 // ==========================================
 
-async function loadStatusWorkerInfo() {
+let rateLimitData = null;
+
+async function loadRateLimits() {
     try {
-        const response = await fetch('/api/status-worker');
-        statusWorkerInfo = await response.json();
-        updateStatusWorkerUI();
+        const response = await fetch('/api/rate-limits');
+        rateLimitData = await response.json();
+        updateRateLimitIndicator();
     } catch (error) {
-        console.error('Failed to load status worker info:', error);
+        console.error('Failed to load rate limits:', error);
     }
 }
 
-function updateStatusWorkerUI() {
-    const statusEl = document.getElementById('worker-status');
-    const buttonEl = document.getElementById('worker-toggle');
+function updateRateLimitIndicator() {
+    const statusEl = document.getElementById('rate-limit-status');
+    const indicatorEl = document.getElementById('rate-limit-indicator');
     
-    if (statusWorkerInfo.running) {
-        buttonEl.textContent = 'Stop';
-        buttonEl.disabled = false;
-        statusEl.textContent = statusWorkerInfo.currentRepo || 'Running (idle)';
+    if (!rateLimitData || !rateLimitData.hosts || rateLimitData.hosts.length === 0) {
+        statusEl.textContent = 'No data';
+        indicatorEl.className = 'rate-limit-indicator';
+        return;
+    }
+    
+    // Find the most concerning rate limit
+    let worstPercentUsed = 0;
+    let lowestRemaining = Infinity;
+    
+    for (const host of rateLimitData.hosts) {
+        for (const resource of Object.values(host.resources)) {
+            if (resource.percentUsed > worstPercentUsed) {
+                worstPercentUsed = resource.percentUsed;
+            }
+            if (resource.remaining < lowestRemaining) {
+                lowestRemaining = resource.remaining;
+            }
+        }
+    }
+    
+    // Display the most relevant info
+    if (worstPercentUsed >= 80) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-danger';
+    } else if (worstPercentUsed >= 50) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-warning';
+    } else if (lowestRemaining !== Infinity) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-ok';
     } else {
-        buttonEl.textContent = 'Start';
-        buttonEl.disabled = false;
-        statusEl.textContent = 'Stopped';
+        statusEl.textContent = 'OK';
+        indicatorEl.className = 'rate-limit-indicator rate-limit-ok';
     }
 }
 
-async function toggleStatusWorker() {
-    const button = document.getElementById('worker-toggle');
-    button.disabled = true;
+function showRateLimitsModal() {
+    const modal = document.getElementById('rate-limits-modal');
+    const content = document.getElementById('rate-limits-content');
     
-    try {
-        const endpoint = statusWorkerInfo.running ? '/api/status-worker/stop' : '/api/status-worker/start';
-        const response = await fetch(endpoint, { method: 'POST' });
-        const result = await response.json();
-        if (result.success) await loadStatusWorkerInfo();
-        else button.disabled = false;
-    } catch (error) {
-        button.disabled = false;
+    if (!rateLimitData || !rateLimitData.hosts || rateLimitData.hosts.length === 0) {
+        content.innerHTML = `
+            <p style="color: var(--text-secondary);">No rate limit data available yet.</p>
+            <p style="font-size: 13px; color: var(--text-secondary);">Rate limits will be tracked as GitHub API calls are made.</p>
+        `;
+        modal.classList.add('show');
+        return;
     }
-}
-
-async function loadMigrationWorkerInfo() {
-    try {
-        const response = await fetch('/api/migration-worker');
-        migrationWorkerInfo = await response.json();
-        updateMigrationWorkerUI();
-    } catch (error) {
-        console.error('Failed to load migration worker info:', error);
-    }
-}
-
-function updateMigrationWorkerUI() {
-    const statusEl = document.getElementById('migration-worker-status');
-    const buttonEl = document.getElementById('migration-worker-toggle');
     
-    if (migrationWorkerInfo.running) {
-        buttonEl.textContent = 'Stop';
-        buttonEl.disabled = false;
-        statusEl.textContent = migrationWorkerInfo.currentRepo || 'Running (idle)';
-    } else {
-        buttonEl.textContent = 'Start';
-        buttonEl.disabled = false;
-        statusEl.textContent = 'Stopped';
-    }
-}
-
-async function toggleMigrationWorker() {
-    const button = document.getElementById('migration-worker-toggle');
-    button.disabled = true;
+    let html = '';
     
-    try {
-        const endpoint = migrationWorkerInfo.running ? '/api/migration-worker/stop' : '/api/migration-worker/start';
-        const response = await fetch(endpoint, { method: 'POST' });
-        const result = await response.json();
-        if (result.success) await loadMigrationWorkerInfo();
-        else button.disabled = false;
-    } catch (error) {
-        button.disabled = false;
+    // Show warnings first if any
+    if (rateLimitData.warnings && rateLimitData.warnings.length > 0) {
+        html += '<div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 10px; margin-bottom: 15px;">';
+        html += '<strong style="color: #856404;">⚠️ Rate Limit Warnings</strong>';
+        html += '<ul style="margin: 10px 0 0 0; padding-left: 20px;">';
+        for (const warning of rateLimitData.warnings) {
+            html += `<li style="color: #856404;">${escapeHtml(warning.host)}/${warning.resource}: ${warning.remaining} remaining (${warning.percentUsed}% used), resets ${formatTimestamp(warning.resetAt)}</li>`;
+        }
+        html += '</ul></div>';
     }
-}
-
-async function loadProgressWorkerInfo() {
-    try {
-        const response = await fetch('/api/progress-worker');
-        progressWorkerInfo = await response.json();
-        updateProgressWorkerUI();
-    } catch (error) {
-        console.error('Failed to load progress worker info:', error);
-    }
-}
-
-function updateProgressWorkerUI() {
-    const statusEl = document.getElementById('progress-worker-status');
-    const buttonEl = document.getElementById('progress-worker-toggle');
     
-    if (progressWorkerInfo.running) {
-        buttonEl.textContent = 'Stop';
-        buttonEl.disabled = false;
-        statusEl.textContent = progressWorkerInfo.currentRepo || 'Running (idle)';
-    } else {
-        buttonEl.textContent = 'Start';
-        buttonEl.disabled = false;
-        statusEl.textContent = 'Stopped';
+    // Show all hosts
+    for (const host of rateLimitData.hosts) {
+        html += `<div style="margin-bottom: 20px;">`;
+        html += `<h3 style="margin: 0 0 10px 0; font-size: 16px;">${escapeHtml(host.host)}</h3>`;
+        html += `<table style="width: 100%; border-collapse: collapse; font-size: 14px;">`;
+        html += `<thead><tr style="background: var(--bg-secondary);">
+            <th style="text-align: left; padding: 8px; border: 1px solid var(--border-color);">Resource</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Remaining</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Limit</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Used %</th>
+            <th style="text-align: left; padding: 8px; border: 1px solid var(--border-color);">Resets</th>
+        </tr></thead><tbody>`;
+        
+        for (const [resource, info] of Object.entries(host.resources)) {
+            const percentColor = info.percentUsed >= 80 ? '#dc3545' : info.percentUsed >= 50 ? '#ffc107' : '#28a745';
+            html += `<tr>
+                <td style="padding: 8px; border: 1px solid var(--border-color);">${escapeHtml(resource)}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">${info.remaining.toLocaleString()}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">${info.limit.toLocaleString()}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color); color: ${percentColor}; font-weight: bold;">${info.percentUsed}%</td>
+                <td style="padding: 8px; border: 1px solid var(--border-color);">${formatTimestamp(info.resetAt)}</td>
+            </tr>`;
+        }
+        
+        html += '</tbody></table>';
+        html += `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">Last updated: ${formatTimestamp(host.updatedAt)}</div>`;
+        html += '</div>';
     }
+    
+    content.innerHTML = html;
+    modal.classList.add('show');
 }
 
-async function toggleProgressWorker() {
-    const button = document.getElementById('progress-worker-toggle');
-    button.disabled = true;
-    
-    try {
-        const endpoint = progressWorkerInfo.running ? '/api/progress-worker/stop' : '/api/progress-worker/start';
-        const response = await fetch(endpoint, { method: 'POST' });
-        const result = await response.json();
-        if (result.success) await loadProgressWorkerInfo();
-        else button.disabled = false;
-    } catch (error) {
-        button.disabled = false;
-    }
+function closeRateLimitsModal() {
+    document.getElementById('rate-limits-modal').classList.remove('show');
 }

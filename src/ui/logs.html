@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Logs - GitHub Migration Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23333'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        .logs-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 180px);
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px var(--shadow);
+            overflow: hidden;
+        }
+
+        .logs-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .logs-header h2 {
+            margin: 0;
+            font-size: 16px;
+            color: var(--text-primary);
+        }
+
+        .logs-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .logs-controls label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .logs-controls input[type="checkbox"] {
+            margin-right: 5px;
+        }
+
+        .logs-filter {
+            display: flex;
+            gap: 10px;
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .logs-filter input[type="text"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 6px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 13px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .logs-filter input[type="text"]:focus {
+            outline: none;
+            border-color: #0366d6;
+        }
+
+        .log-level-filters {
+            display: flex;
+            gap: 8px;
+        }
+
+        .level-pill {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            opacity: 0.4;
+        }
+
+        .level-pill:hover {
+            opacity: 0.7;
+        }
+
+        .level-pill.active {
+            opacity: 1;
+        }
+
+        .level-pill.level-info {
+            background: #dae8fc;
+            color: #0366d6;
+        }
+
+        .level-pill.level-warn {
+            background: #fff3bf;
+            color: #e67700;
+        }
+
+        .level-pill.level-error {
+            background: #f8d7da;
+            color: #d73a49;
+        }
+
+        .level-pill.level-debug {
+            background: #e1e4e8;
+            color: #586069;
+        }
+
+        .logs-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            padding: 4px 20px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .log-entry:hover {
+            background: var(--hover-bg);
+        }
+
+        .log-entry.log-error {
+            background: rgba(215, 58, 73, 0.1);
+        }
+
+        .log-entry.log-warn {
+            background: rgba(230, 119, 0, 0.1);
+        }
+
+        .log-timestamp {
+            color: var(--text-secondary);
+            white-space: nowrap;
+            min-width: 85px;
+        }
+
+        .log-level {
+            font-weight: 600;
+            text-transform: uppercase;
+            min-width: 50px;
+        }
+
+        .log-level.level-info {
+            color: #0366d6;
+        }
+
+        .log-level.level-warn {
+            color: #e67700;
+        }
+
+        .log-level.level-error {
+            color: #d73a49;
+        }
+
+        .log-level.level-debug {
+            color: #586069;
+        }
+
+        .log-source {
+            color: #6f42c1;
+            min-width: 120px;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .log-message {
+            color: var(--text-primary);
+            flex: 1;
+            word-break: break-word;
+        }
+
+        .logs-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+
+        .status-dot.disconnected {
+            background: #d73a49;
+        }
+
+        .status-dot.connecting {
+            background: #e67700;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .logs-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+        }
+
+        .logs-empty p {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="site-branding">
+                    <h1 class="site-title">GitHub Migration Dashboard</h1>
+                    <span class="site-subtitle"><a href="https://spirgroup.dev/docs/spir/component/github-migrate" target="_blank">a SpirGroup project</a></span>
+                </div>
+                <div class="header-right">
+                    <button class="hamburger" id="nav-toggle" onclick="toggleNav()">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <nav class="main-nav" id="main-nav">
+                        <a href="/" class="nav-link">Dashboard</a>
+                        <a href="/config" class="nav-link">Config</a>
+                        <a href="/logs" class="nav-link active">Logs</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <div class="logs-container">
+                <div class="logs-header">
+                    <h2>📋 Live Logs</h2>
+                    <div class="logs-controls">
+                        <label>
+                            <input type="checkbox" id="auto-scroll" checked>
+                            Auto-scroll
+                        </label>
+                        <label>
+                            <input type="checkbox" id="show-timestamps" checked>
+                            Timestamps
+                        </label>
+                        <button class="btn btn-small" onclick="clearLogs()">Clear</button>
+                        <button class="btn btn-small" onclick="downloadLogs()">Download</button>
+                    </div>
+                </div>
+                
+                <div class="logs-filter">
+                    <input type="text" id="log-filter" placeholder="Filter logs by text..." />
+                    <div class="log-level-filters">
+                        <button class="level-pill level-debug active" data-level="debug">DEBUG</button>
+                        <button class="level-pill level-info active" data-level="info">INFO</button>
+                        <button class="level-pill level-warn active" data-level="warn">WARN</button>
+                        <button class="level-pill level-error active" data-level="error">ERROR</button>
+                    </div>
+                </div>
+
+                <div class="logs-content" id="logs-content">
+                    <div class="logs-empty">
+                        <p>⏳ Waiting for logs...</p>
+                        <p>Logs will appear here as they are generated.</p>
+                    </div>
+                </div>
+
+                <div class="logs-footer">
+                    <div class="connection-status">
+                        <span class="status-dot connecting" id="connection-dot"></span>
+                        <span id="connection-text">Connecting...</span>
+                    </div>
+                    <div>
+                        <span id="log-count">0</span> log entries
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/logs.js"></script>
+</body>
+</html>

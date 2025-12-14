@@ -13,8 +13,10 @@ import {
   AppState, 
   SyncRuntimeConfig, 
   HostConfig,
-  WorkerConfig 
+  WorkerConfig,
+  AdminConfig
 } from './types';
+import { stateLog } from './logger';
 
 // Re-export types
 export type { 
@@ -25,15 +27,16 @@ export type {
   AppState, 
   SyncRuntimeConfig, 
   HostConfig,
-  WorkerConfig 
+  WorkerConfig,
+  AdminConfig
 };
 
 const USE_DYNAMODB = !!process.env.DYNAMODB_TABLE;
 
 if (USE_DYNAMODB) {
-  console.log(`[${new Date().toISOString()}] State storage: DynamoDB (table: ${process.env.DYNAMODB_TABLE})`);
+  stateLog.info(`State storage: DynamoDB (table: ${process.env.DYNAMODB_TABLE})`);
 } else {
-  console.log(`[${new Date().toISOString()}] State storage: File-based`);
+  stateLog.info('State storage: File-based');
 }
 
 // Import both modules
@@ -66,6 +69,8 @@ export const saveStateImmediate = impl.saveStateImmediate;
 export const flushPendingSaves = impl.flushPendingSaves;
 export const getWorkerConfig = impl.getWorkerConfig;
 export const setWorkerConfig = impl.setWorkerConfig;
+export const getAdminConfig = impl.getAdminConfig;
+export const setAdminConfig = impl.setAdminConfig;
 
 // ============================================
 // Sync functions (cache-based, safe to call without await)

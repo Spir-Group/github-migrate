@@ -7,6 +7,7 @@ import {
   SyncConfig, 
   RepoState 
 } from './types';
+import { stateLog } from './logger';
 
 // Use DATA_DIR env var if set, otherwise default to ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -166,7 +167,7 @@ export function migrateLegacyState(legacy: LegacyMigrationState): AppState {
  */
 export function loadAndMigrateState(): AppState {
   if (!fs.existsSync(STATE_FILE)) {
-    console.log(`[${new Date().toISOString()}] No state file found, creating fresh state`);
+    stateLog.info('No state file found, creating fresh state');
     return createFreshState();
   }
   
@@ -175,16 +176,16 @@ export function loadAndMigrateState(): AppState {
     const parsed = JSON.parse(data);
     
     if (isNewState(parsed)) {
-      console.log(`[${new Date().toISOString()}] Loaded state v${parsed.version} with ${Object.keys(parsed.syncs).length} sync(s) and ${Object.keys(parsed.repos).length} repo(s)`);
+      stateLog.info(`Loaded state v${parsed.version} with ${Object.keys(parsed.syncs).length} sync(s) and ${Object.keys(parsed.repos).length} repo(s)`);
       return parsed;
     }
     
     if (isLegacyState(parsed)) {
-      console.log(`[${new Date().toISOString()}] Detected legacy state format, migrating...`);
+      stateLog.info('Detected legacy state format, migrating...');
       
       // Backup the old state file
       fs.copyFileSync(STATE_FILE, BACKUP_FILE);
-      console.log(`[${new Date().toISOString()}] Created backup: ${BACKUP_FILE}`);
+      stateLog.info(`Created backup: ${BACKUP_FILE}`);
       
       const migrated = migrateLegacyState(parsed);
       
@@ -195,16 +196,16 @@ export function loadAndMigrateState(): AppState {
       }
       fs.writeFileSync(STATE_FILE, JSON.stringify(migrated, null, 2), 'utf8');
       
-      console.log(`[${new Date().toISOString()}] Migration complete: ${Object.keys(migrated.syncs).length} sync(s), ${Object.keys(migrated.repos).length} repo(s)`);
+      stateLog.info(`Migration complete: ${Object.keys(migrated.syncs).length} sync(s), ${Object.keys(migrated.repos).length} repo(s)`);
       
       return migrated;
     }
     
-    console.error(`[${new Date().toISOString()}] Unknown state format, creating fresh state`);
+    stateLog.error('Unknown state format, creating fresh state');
     return createFreshState();
     
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error loading state:`, error);
+    stateLog.error(`Error loading state: ${error}`);
     return createFreshState();
   }
 }
@@ -222,7 +223,7 @@ export function createFreshState(): AppState {
 
 // Run migration if this file is executed directly
 if (require.main === module) {
-  console.log('Running state migration...');
+  stateLog.info('Running state migration...');
   const result = loadAndMigrateState();
-  console.log('Migration result:', JSON.stringify(result, null, 2));
+  stateLog.info(`Migration result: ${JSON.stringify(result, null, 2)}`);
 }

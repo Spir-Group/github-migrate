@@ -1,6 +1,7 @@
 import { SyncRuntimeConfig } from '../types';
 import * as state from '../state-index';
 import { fetchRepositories } from '../github';
+import { discoveryLog } from '../logger';
 
 /**
  * Discover repositories from source org and add new ones to state
@@ -9,10 +10,10 @@ export async function discoverRepositoriesForSync(
   config: SyncRuntimeConfig, 
   onUpdate?: () => void
 ): Promise<void> {
-  console.log(`[${new Date().toISOString()}] Discovering repositories for sync "${config.name}" from ${config.source.org}...`);
+  discoveryLog.info(`Discovering repositories for sync "${config.name}" from ${config.source.org}...`);
   
   const repos = await fetchRepositories(config.source);
-  console.log(`[${new Date().toISOString()}] Found ${repos.length} repositories in ${config.source.org}`);
+  discoveryLog.info(`Found ${repos.length} repositories in ${config.source.org}`);
 
   let newRepoCount = 0;
   let archivedRepoCount = 0;
@@ -26,7 +27,7 @@ export async function discoverRepositoriesForSync(
     if (!sourceRepoNames.has(stateRepo.name) && stateRepo.status !== 'deleted') {
       await state.archiveRepo(stateRepo.id);
       archivedRepoCount++;
-      console.log(`[${new Date().toISOString()}] Archived ${stateRepo.name} (no longer in source)`);
+      discoveryLog.info(`Archived ${stateRepo.name} (no longer in source)`);
     }
   }
   
@@ -43,13 +44,13 @@ export async function discoverRepositoriesForSync(
   }
 
   if (newRepoCount > 0) {
-    console.log(`[${new Date().toISOString()}] Added ${newRepoCount} new repositories for sync "${config.name}"`);
+    discoveryLog.info(`Added ${newRepoCount} new repositories for sync "${config.name}"`);
   }
   if (archivedRepoCount > 0) {
-    console.log(`[${new Date().toISOString()}] Archived ${archivedRepoCount} repositories for sync "${config.name}"`);
+    discoveryLog.info(`Archived ${archivedRepoCount} repositories for sync "${config.name}"`);
   }
   if (newRepoCount === 0 && archivedRepoCount === 0) {
-    console.log(`[${new Date().toISOString()}] No changes to repository list for sync "${config.name}"`);
+    discoveryLog.info(`No changes to repository list for sync "${config.name}"`);
   }
 
   await state.saveState();

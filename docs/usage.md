@@ -2,17 +2,22 @@
 
 ## Dashboard Overview
 
-The dashboard provides a real-time view of all repository migrations with controls for managing workers.
+The dashboard provides a real-time view of all repository migrations with real-time statistics.
 
-Configuration has been moved to a dedicated **Configuration** page accessible via the **⚙️ Configuration** button in the header.
+- **Navigation**: Use the top navigation bar to switch between Dashboard, Config, and Logs pages
+- **Mobile Support**: On mobile devices, use the hamburger menu (☰) to access navigation
+- **Rate Limits**: The ⚡ indicator in the stats bar shows GitHub API rate limit status—click for details
+
+Configuration has been moved to a dedicated **Configuration** page accessible via the **Config** link in the navigation.
 
 ## Configuration Page
 
-Access the configuration page by clicking **⚙️ Configuration** in the dashboard header. This page allows you to manage:
+Access the configuration page by clicking **Config** in the navigation. This page allows you to manage:
 
 - Sync configurations (source/target organizations)
 - Worker parameters (intervals, batch sizes, limits)
-- View global settings (storage backend, base path)
+- Worker controls (start/stop with countdown timers)
+- Administrator settings (read-only mode for non-admins)
 
 ## Sync Configuration
 
@@ -54,21 +59,27 @@ The Test Connection button validates:
 ## Worker Controls
 
 Three independent workers in the dashboard header can be started/stopped individually:
+Four independent workers are managed on the **Config** page. Each shows a countdown timer to the next run:
+
+### Discovery Worker (Discoverer)
+- Scans source organizations for new repositories
+- Adds new repos to state with "unknown" status
+- Configurable run interval (default: 1 minute)
 
 ### Status Worker (Checker)
-- Checks which repositories need syncing
-- Runs continuously, checking oldest repos
-- Shows currently checking repository
-- Configurable: check interval, idle interval, batch size
+- Checks if repositories need syncing
+- Runs continuously, checking oldest repos first
+- Shows current repo being checked
+- Configurable: run interval, recheck age, batch size
 
 ### Migration Worker (Queuer)
 - Queues migrations for unsynced repositories
 - Configurable max concurrent queued repos (default: 10)
-- Configurable check interval (default: 30 seconds)
+- Configurable run interval (default: 1 minute)
 
 ### Progress Worker (Reporter)
 - Monitors in-progress migrations
-- Configurable poll interval (default: 60 seconds)
+- Configurable run interval (default: 1 minute)
 - Configurable stale timeout (default: 120 minutes)
 - Downloads logs when migrations complete (local mode only)
 
@@ -118,11 +129,35 @@ Repository discovery runs on-demand when you click the **Discover** button on a 
 
 ## Statistics
 
-The dashboard header shows:
+The dashboard header shows aggregated statistics on a single line:
 
 - **Synced up to**: Data freshness indicator
 - **Total size**: Combined repository size
 - **Total duration**: Sum of migration times
-- **Est. wall time**: Time to complete all migrations (10 parallel)
+- **Wall time (10∥)**: Estimated time to complete all migrations (10 in parallel)
 - **Duration/MB**: Average migration speed
-- **Counts**: By status (unsynced, queued, syncing, synced, failed, unknown)
+- **⚡ Rate limit**: GitHub API rate limit status (click for details)
+
+Status counts (unsynced, queued, syncing, synced, failed, unknown) are shown in clickable stat boxes below.
+
+## Live Logs
+
+Access the **Logs** page via the navigation bar to view real-time application logs:
+
+- **Level Filtering**: Filter by DEBUG, INFO, WARN, ERROR
+- **Text Search**: Filter logs by text content
+- **Auto-scroll**: Automatically scroll to new entries
+- **Download**: Export filtered logs as a text file
+- **SSE Connection**: Real-time streaming with automatic reconnection
+
+## Admin Mode
+
+When running in production with SSO authentication, administrators can enable **Admin Mode** on the Config page:
+
+- **When disabled**: All authenticated users have full access
+- **When enabled**: Only administrators can make changes; others are read-only
+
+The first user to enable admin mode becomes the first administrator. Admins can add/remove other administrators.
+
+!!! note "Local Development"
+    Set `LOCAL_DEV_USER=your@email.com` to simulate a logged-in user locally.

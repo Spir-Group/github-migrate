@@ -130,34 +130,40 @@ export interface HostConfig {
 
 // Worker configuration - configurable intervals and limits
 export interface WorkerConfig {
+  discovery: {
+    runIntervalMinutes: number;        // How often to discover new repos (default: 60)
+  };
   status: {
-    checkIntervalSeconds: number;      // How often to check repos (default: 60)
-    idleIntervalSeconds: number;       // Interval when no work found (default: 60)
+    runIntervalMinutes: number;        // How often to run the worker (default: 1)
+    recheckAgeMinutes: number;         // Minimum age before re-checking a repo (default: 5)
     batchSize: number;                 // Repos to check per tick (default: 1)
   };
   migration: {
+    runIntervalMinutes: number;        // How often to check for work (default: 1)
     maxConcurrentQueued: number;       // Max migrations to queue (default: 10)
-    checkIntervalSeconds: number;      // How often to check for work (default: 30)
   };
   progress: {
-    pollIntervalSeconds: number;       // How often to poll migration progress (default: 60)
+    runIntervalMinutes: number;        // How often to poll migration progress (default: 1)
     staleTimeoutMinutes: number;       // Mark as stale after this many minutes (default: 120)
   };
 }
 
 // Default worker configuration
 export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
+  discovery: {
+    runIntervalMinutes: 1,
+  },
   status: {
-    checkIntervalSeconds: 60,
-    idleIntervalSeconds: 60,
+    runIntervalMinutes: 1,
+    recheckAgeMinutes: 5,
     batchSize: 1,
   },
   migration: {
+    runIntervalMinutes: 1,
     maxConcurrentQueued: 10,
-    checkIntervalSeconds: 30,
   },
   progress: {
-    pollIntervalSeconds: 60,
+    runIntervalMinutes: 1,
     staleTimeoutMinutes: 120,
   },
 };
@@ -165,4 +171,23 @@ export const DEFAULT_WORKER_CONFIG: WorkerConfig = {
 // Extended application state with worker config
 export interface AppStateWithConfig extends AppState {
   workerConfig?: WorkerConfig;
+}
+
+// Admin configuration
+export interface AdminConfig {
+  enabled: boolean;                    // Whether admin mode is enabled
+  admins: string[];                    // List of admin user emails/identifiers
+}
+
+export const DEFAULT_ADMIN_CONFIG: AdminConfig = {
+  enabled: false,
+  admins: []
+};
+
+// User info extracted from ALB OIDC headers
+export interface UserInfo {
+  email?: string;
+  name?: string;
+  sub?: string;                        // Subject identifier
+  raw?: Record<string, unknown>;       // Raw claims for debugging
 }

@@ -1,4 +1,5 @@
 import { SyncRuntimeConfig, HostConfig } from './types';
+import { configLog } from './logger';
 
 // Re-export types for backwards compatibility
 export type { SyncRuntimeConfig, HostConfig };
@@ -65,8 +66,7 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
   sourceError?: string;
   targetError?: string;
 }> {
-  const timestamp = () => `[${new Date().toISOString()}]`;
-  console.log(`${timestamp()} Starting sync validation for "${syncConfig.source.org}" → "${syncConfig.target.org}"`);
+  configLog.info(`Starting sync validation for "${syncConfig.source.org}" → "${syncConfig.target.org}"`);
   
   const result = {
     sourceValid: false,
@@ -76,38 +76,38 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
   };
   
   // Test source access
-  console.log(`${timestamp()} Validating SOURCE: ${syncConfig.source.org} @ ${syncConfig.source.restBase}`);
+  configLog.info(`Validating SOURCE: ${syncConfig.source.org} @ ${syncConfig.source.restBase}`);
   try {
     const sourceResult = await testOrgAccess(syncConfig.source, 'source');
     result.sourceValid = sourceResult.valid;
     result.sourceError = sourceResult.error;
     if (sourceResult.valid) {
-      console.log(`${timestamp()} SOURCE: ✓ All checks passed`);
+      configLog.info(`SOURCE: ✓ All checks passed`);
     } else {
-      console.log(`${timestamp()} SOURCE: ✗ Failed - ${sourceResult.error}`);
+      configLog.warn(`SOURCE: ✗ Failed - ${sourceResult.error}`);
     }
   } catch (error) {
     result.sourceError = String(error);
-    console.log(`${timestamp()} SOURCE: ✗ Exception - ${error}`);
+    configLog.error(`SOURCE: ✗ Exception`, error);
   }
   
   // Test target access
-  console.log(`${timestamp()} Validating TARGET: ${syncConfig.target.org} @ ${syncConfig.target.restBase}`);
+  configLog.info(`Validating TARGET: ${syncConfig.target.org} @ ${syncConfig.target.restBase}`);
   try {
     const targetResult = await testOrgAccess(syncConfig.target, 'target');
     result.targetValid = targetResult.valid;
     result.targetError = targetResult.error;
     if (targetResult.valid) {
-      console.log(`${timestamp()} TARGET: ✓ All checks passed`);
+      configLog.info(`TARGET: ✓ All checks passed`);
     } else {
-      console.log(`${timestamp()} TARGET: ✗ Failed - ${targetResult.error}`);
+      configLog.warn(`TARGET: ✗ Failed - ${targetResult.error}`);
     }
   } catch (error) {
     result.targetError = String(error);
-    console.log(`${timestamp()} TARGET: ✗ Exception - ${error}`);
+    configLog.error(`TARGET: ✗ Exception`, error);
   }
   
-  console.log(`${timestamp()} Validation complete: source=${result.sourceValid ? 'PASS' : 'FAIL'}, target=${result.targetValid ? 'PASS' : 'FAIL'}`);
+  configLog.info(`Validation complete: source=${result.sourceValid ? 'PASS' : 'FAIL'}, target=${result.targetValid ? 'PASS' : 'FAIL'}`);
   return result;
 }
 
@@ -128,8 +128,7 @@ const TARGET_REQUIRED_SCOPES = ['repo', 'admin:org', 'workflow', 'admin:repo_hoo
 async function testOrgAccess(hostConfig: HostConfig, type: 'source' | 'target'): Promise<{ valid: boolean; error?: string }> {
   const requiredScopes = type === 'source' ? SOURCE_REQUIRED_SCOPES : TARGET_REQUIRED_SCOPES;
   const label = type.toUpperCase();
-  const timestamp = () => `[${new Date().toISOString()}]`;
-  const log = (msg: string) => console.log(`${timestamp()} ${label}: ${msg}`);
+  const log = (msg: string) => configLog.info(`${label}: ${msg}`);
   
   // Step 1: Verify the token is valid and check scopes
   log(`Step 1/3: Validating token via /user endpoint...`);
@@ -286,32 +285,32 @@ export function loadConfig(cliPort?: number, cliPollSeconds?: number): Config {
   const targetOrg = process.env.GH_TARGET_ORG;
 
   if (!sourceToken) {
-    console.error('Error: GH_SOURCE_TOKEN environment variable must be set');
+    configLog.error('GH_SOURCE_TOKEN environment variable must be set');
     process.exit(1);
   }
 
   if (!targetToken) {
-    console.error('Error: GH_TARGET_TOKEN environment variable must be set');
+    configLog.error('GH_TARGET_TOKEN environment variable must be set');
     process.exit(1);
   }
 
   if (!sourceEnt) {
-    console.error('Error: GH_SOURCE_ENT environment variable must be set');
+    configLog.error('GH_SOURCE_ENT environment variable must be set');
     process.exit(1);
   }
 
   if (!targetEnt) {
-    console.error('Error: GH_TARGET_ENT environment variable must be set');
+    configLog.error('GH_TARGET_ENT environment variable must be set');
     process.exit(1);
   }
 
   if (!sourceOrg) {
-    console.error('Error: GH_SOURCE_ORG environment variable must be set');
+    configLog.error('GH_SOURCE_ORG environment variable must be set');
     process.exit(1);
   }
 
   if (!targetOrg) {
-    console.error('Error: GH_TARGET_ORG environment variable must be set');
+    configLog.error('GH_TARGET_ORG environment variable must be set');
     process.exit(1);
   }
 

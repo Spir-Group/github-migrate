@@ -4,6 +4,7 @@ import * as https from 'https';
 import * as http from 'http';
 import { getMigrationLogUrl } from './github';
 import * as state from './state-index';
+import { appLog } from './logger';
 
 // Use DATA_DIR env var if set, otherwise default to ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
@@ -69,7 +70,7 @@ export async function downloadLogsById(repoId: string): Promise<string> {
   try {
     if (!repo.migrationId) {
       const errorMsg = 'No migration ID found for this repository';
-      console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+      appLog.error(errorMsg);
       return errorMsg;
     }
 
@@ -78,7 +79,7 @@ export async function downloadLogsById(repoId: string): Promise<string> {
     
     if (!logUrl) {
       const errorMsg = 'Migration log URL not available';
-      console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+      appLog.error(errorMsg);
       return errorMsg;
     }
 
@@ -109,7 +110,7 @@ export async function downloadLogsById(repoId: string): Promise<string> {
     return logContent;
   } catch (error) {
     const errorMsg = `Error downloading logs: ${String(error)}`;
-    console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+    appLog.error(errorMsg);
     return errorMsg;
   }
 }

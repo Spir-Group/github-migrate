@@ -1,6 +1,7 @@
 import { SyncRuntimeConfig } from '../types';
 import * as state from '../state-index';
 import { runGei, extractMigrationId } from '../github';
+import { migrationLog } from '../logger';
 
 const MAX_CONCURRENT_QUEUED = 10;
 
@@ -88,7 +89,7 @@ export async function queueSingleRepoForSync(
     }
 
     if (result.code !== 0) {
-      console.error(`[${new Date().toISOString()}] Failed to queue ${repo.name}: ${result.stderr}`);
+      migrationLog.error(`Failed to queue ${repo.name}: ${result.stderr}`);
       await state.setStatus(repo.id, 'failed', result.stderr);
       return;
     }
@@ -96,13 +97,14 @@ export async function queueSingleRepoForSync(
     // Check for "already contains" error
     const combinedOutput = result.stdout + result.stderr;
     if (combinedOutput.includes('already contains a repository with the name')) {
+      migrationLog.info(`Target repo ${repo.name} already exists, deleting and retrying...`);
       const deleteSuccess = await deleteTargetRepository(config, repo.name);
       if (deleteSuccess) {
         await queueSingleRepoForSync(config, repo);
         return;
       } else {
         const errorMsg = `Failed to delete existing target repository. Original error: ${result.stdout}`;
-        console.error(`[${new Date().toISOString()}] ${errorMsg}`);
+        migrationLog.error(errorMsg);
         await state.setStatus(repo.id, 'failed', errorMsg);
         return;
       }
@@ -111,7 +113,7 @@ export async function queueSingleRepoForSync(
     const migrationId = extractMigrationId(result.stdout);
     
     if (!migrationId) {
-      console.error(`[${new Date().toISOString()}] Could not extract migration ID for ${repo.name}`);
+      migrationLog.error(`Could not extract migration ID for ${repo.name}`);
       const errorMsg = `Could not extract migration ID from output\n${result.stdout}`;
       await state.setStatus(repo.id, 'failed', errorMsg);
       return;
@@ -127,9 +129,9 @@ export async function queueSingleRepoForSync(
       elapsedSeconds: 0
     });
 
-    console.log(`[${new Date().toISOString()}] Migration worker: Queued ${repo.name}`);
+    migrationLog.info(`Queued ${config.name}/${repo.name} (ID: ${migrationId})`);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error queueing ${repo.name}:`, error);
+    migrationLog.error(`Error queueing ${repo.name}`, error);
     await state.setStatus(repo.id, 'failed', String(error));
   }
 }
@@ -152,12 +154,12 @@ async function deleteTargetRepository(config: SyncRuntimeConfig, repoName: strin
       return true;
     } else {
       const errorText = await response.text();
-      console.error(`[${new Date().toISOString()}] Failed to delete ${repoName}: HTTP ${response.status} ${response.statusText}`);
-      console.error(`Response: ${errorText}`);
+      migrationLog.error(`Failed to delete ${repoName}: HTTP ${response.status} ${response.statusText}`);
+      migrationLog.error(`Response: ${errorText}`);
       return false;
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error deleting repository:`, error);
+    migrationLog.error('Error deleting repository', error);
     return false;
   }
 }

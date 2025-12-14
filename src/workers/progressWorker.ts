@@ -2,6 +2,7 @@ import { SyncRuntimeConfig } from '../types';
 import * as state from '../state-index';
 import { getMigrationStatus } from '../github';
 import { downloadLogsById } from '../logs';
+import { progressLog } from '../logger';
 
 /**
  * Poll migration statuses for a specific sync
@@ -20,9 +21,13 @@ export async function pollMigrationStatusesForSync(
     return;
   }
 
+  const queuedCount = incomplete.filter(r => r.status === 'queued').length;
+  const syncingCount = incomplete.filter(r => r.status === 'syncing').length;
+  progressLog.info(`Polling ${incomplete.length} in-progress migrations for "${config.name}" (${queuedCount} queued, ${syncingCount} syncing)`);
+
   for (const repo of incomplete) {
     if (shouldStop && shouldStop()) {
-      console.log(`[${new Date().toISOString()}] Progress worker: Stopping (worker disabled)`);
+      progressLog.info('Stopping (worker disabled)');
       if (onRepoEnd) onRepoEnd();
       return;
     }
@@ -53,7 +58,7 @@ async function pollSingleRepo(
       const elapsedMs = now - startTime;
       
       if (elapsedMs > staleTimeoutMs) {
-        console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000 / 60)}m without migration ID, marking as unknown`);
+        progressLog.warn(`${repo.name} has been in-progress for ${Math.round(elapsedMs / 1000 / 60)}m without migration ID, marking as unknown`);
         await state.setStatus(repo.id, 'unknown', 'Migration status lost - may have completed or failed');
         if (onUpdate) onUpdate();
       }
@@ -71,7 +76,7 @@ async function pollSingleRepo(
         const elapsedMs = now - startTime;
         
         if (elapsedMs > staleTimeoutMs) {
-          console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} migration not found after ${Math.round(elapsedMs / 1000 / 60)}m, marking as unknown`);
+          progressLog.warn(`${repo.name} migration not found after ${Math.round(elapsedMs / 1000 / 60)}m, marking as unknown`);
           await state.setStatus(repo.id, 'unknown', 'Migration status not found - may have completed or failed');
           if (onUpdate) onUpdate();
         }
@@ -89,9 +94,13 @@ async function pollSingleRepo(
     
     if (newStatus !== repo.status) {
       if (newStatus === 'unknown') {
-        console.warn(`[${new Date().toISOString()}] Progress worker: ${repo.name} unknown status from GitHub state: ${status.state}`);
+        progressLog.warn(`${repo.name} unknown status from GitHub state: ${status.state}`);
+      } else if (newStatus === 'synced' || newStatus === 'failed') {
+        const elapsed = state.getElapsedSeconds(repo);
+        const elapsedStr = elapsed > 0 ? ` (${Math.round(elapsed / 60)}m ${elapsed % 60}s)` : '';
+        progressLog.info(`${repo.name}: ${repo.status} -> ${newStatus}${elapsedStr}`);
       } else {
-        console.log(`[${new Date().toISOString()}] Progress worker: ${repo.name}: ${repo.status} -> ${newStatus}`);
+        progressLog.info(`${repo.name}: ${repo.status} -> ${newStatus}`);
       }
       
       await state.setStatus(repo.id, newStatus, status.failureReason);
@@ -101,14 +110,14 @@ async function pollSingleRepo(
         try {
           await downloadLogsById(repo.id);
         } catch (error) {
-          console.error(`[${new Date().toISOString()}] Progress worker: Failed to download logs for ${repo.name}:`, error);
+          progressLog.error(`Failed to download logs for ${repo.name}`, error);
         }
       }
       
       if (onUpdate) onUpdate();
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Progress worker: Error polling ${repo.name}:`, error);
+    progressLog.error(`Error polling ${repo.name}`, error);
   }
 }
 
@@ -131,7 +140,7 @@ function mapGitHubStatus(githubState: string): state.MigrationStatus {
     case 'failed':
       return 'failed';
     default:
-      console.warn(`[${new Date().toISOString()}] Progress worker: Unknown GitHub state: ${githubState}`);
+      progressLog.warn(`Unknown GitHub state: ${githubState}`);
       return 'unknown';
   }
 }

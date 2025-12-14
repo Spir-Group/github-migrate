@@ -12,6 +12,31 @@ import { checkOldestReposForSync } from './workers/statusWorker';
 import { queueNextRepoForSync } from './workers/migrationWorker';
 import { getRepoLogsById } from './logs';
 import { WorkerConfig, DEFAULT_WORKER_CONFIG } from './types';
+import {
+  authMiddleware,
+  requireAdmin,
+  getUserIdentifier,
+  enableAdminMode,
+  disableAdminMode,
+  addAdmin,
+  removeAdmin
+} from './auth';
+import {
+  serverLog,
+  discoveryLog,
+  statusLog,
+  migrationLog,
+  progressLog,
+  backupLog,
+  healthLog,
+  getRecentLogs,
+  registerLogSSEClient,
+  unregisterLogSSEClient,
+  sendLogHeartbeat,
+  closeAllLogSSEClients,
+  LOG_BUFFER_SIZE
+} from './logger';
+import { getRateLimitSummary, getRateLimits } from './rate-limit';
 
 const argv = yargs(hideBin(process.argv))
   .option('port', {
@@ -34,17 +59,26 @@ const argv = yargs(hideBin(process.argv))
 
 let serverConfig: ServerConfig;
 let sseClients: Response[] = [];
+let discoveryWorkerInterval: NodeJS.Timeout | null = null;
 let statusWorkerInterval: NodeJS.Timeout | null = null;
 let migrationWorkerInterval: NodeJS.Timeout | null = null;
 let progressWorkerInterval: NodeJS.Timeout | null = null;
 let heartbeatInterval: NodeJS.Timeout | null = null;
 let backupInterval: NodeJS.Timeout | null = null;
+let discoveryWorkerRunning = false;
+let discoveryWorkerGeneration = 0;  // Incremented on each start to detect stale runs
+let discoveryWorkerCurrentSync: string | null = null;
+let discoveryWorkerLastRun: string | null = null;
+let discoveryWorkerNextRunAt: string | null = null;
 let statusWorkerRunning = false;
 let statusWorkerCurrentRepo: string | null = null;
+let statusWorkerNextRunAt: string | null = null;
 let migrationWorkerRunning = false;
 let migrationWorkerCurrentRepo: string | null = null;
+let migrationWorkerNextRunAt: string | null = null;
 let progressWorkerRunning = false;
 let progressWorkerCurrentRepo: string | null = null;
+let progressWorkerNextRunAt: string | null = null;
 let healthCheckLogCount = 0;
 
 // Worker configuration is stored in state and persisted
@@ -58,7 +92,7 @@ const BASE_PATH = process.env.BASE_PATH || '';
 const IS_CONTAINER = !!process.env.DYNAMODB_TABLE;
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] GitHub Migration Dashboard starting...`);
+  serverLog.info('GitHub Migration Dashboard starting...');
 
   // Load server configuration
   serverConfig = loadServerConfig(argv.port, argv.pollSeconds);
@@ -66,16 +100,16 @@ async function main() {
   // Check prerequisites
   const hasGh = await checkGhCli();
   if (!hasGh) {
-    console.error('Error: gh CLI not found. Please install it: https://cli.github.com/');
+    serverLog.error('gh CLI not found. Please install it: https://cli.github.com/');
     process.exit(1);
   }
 
   const hasGei = await checkGeiExtension();
   if (!hasGei) {
     if (process.env.SKIP_GEI_CHECK === '1') {
-      console.warn('Warning: gh gei extension not found but SKIP_GEI_CHECK=1, continuing...');
+      serverLog.warn('gh gei extension not found but SKIP_GEI_CHECK=1, continuing...');
     } else {
-      console.error('Error: gh gei extension not found. Please install it: gh extension install github/gh-gei');
+      serverLog.error('gh gei extension not found. Please install it: gh extension install github/gh-gei');
       process.exit(1);
     }
   }
@@ -83,7 +117,7 @@ async function main() {
   // Initialize state (loads and migrates if needed)
   await state.initState();
 
-  // Print banner
+  // Print banner (to console only, not to log buffer)
   const syncs = state.getActiveSyncs();
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
@@ -100,11 +134,13 @@ async function main() {
   console.log(`  Dashboard: http://localhost:${serverConfig.port}`);
   console.log(`  API:       http://localhost:${serverConfig.port}/api/state`);
   console.log('');
+  serverLog.info(`Started with ${syncs.length} syncs, port ${serverConfig.port}`);
 
   // Start web server immediately
   startServer();
 
   // Start workers
+  startDiscoveryWorker();
   startStatusWorker();
   startProgressWorker();
   startMigrationWorker();
@@ -113,9 +149,6 @@ async function main() {
   if (!IS_CONTAINER) {
     startBackupScheduler();
   }
-
-  // Discover repositories for all enabled syncs
-  discoverRepositoriesAsync();
 
   // Handle graceful shutdown
   process.on('SIGINT', shutdown);
@@ -128,6 +161,9 @@ function startServer() {
   
   // Parse JSON bodies
   app.use(express.json());
+
+  // Apply auth middleware to all routes (extracts user info)
+  router.use(authMiddleware);
 
   // Serve static files from src/ui
   const uiDir = path.join(process.cwd(), 'src', 'ui');
@@ -169,9 +205,7 @@ function startServer() {
 
     if (healthCheckLogCount < 10) {
       const callNumber = ++healthCheckLogCount;
-      console.log(
-        `[${new Date().toISOString()}] /api/health call #${callNumber} status=${payload.status} syncs=${payload.syncs}`
-      );
+      healthLog.info(`/api/health call #${callNumber} status=${payload.status} syncs=${payload.syncs}`);
     }
 
     res.status(payload.status === 'ok' ? 200 : 503).json(payload);
@@ -201,6 +235,58 @@ function startServer() {
     res.sendFile(path.join(uiDir, 'config.js'));
   });
 
+  // Logs page
+  router.get('/logs', (req, res) => {
+    res.sendFile(path.join(uiDir, 'logs.html'));
+  });
+
+  router.get('/logs.js', (req, res) => {
+    res.type('application/javascript');
+    res.sendFile(path.join(uiDir, 'logs.js'));
+  });
+
+  // ==========================================
+  // Application Logs API
+  // ==========================================
+
+  // Get recent logs
+  router.get('/api/logs/recent', (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 500, LOG_BUFFER_SIZE);
+    const recentLogs = getRecentLogs(limit);
+    res.json(recentLogs);
+  });
+
+  // SSE stream for real-time logs
+  router.get('/api/logs/stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    registerLogSSEClient(res);
+
+    // Send connected event
+    res.write('event: connected\ndata: {}\n\n');
+
+    req.on('close', () => {
+      unregisterLogSSEClient(res);
+    });
+  });
+
+  // ==========================================
+  // Rate Limits API
+  // ==========================================
+
+  // Get rate limit summary
+  router.get('/api/rate-limits', (req, res) => {
+    const host = req.query.host as string | undefined;
+    if (host) {
+      res.json(getRateLimits(host));
+    } else {
+      res.json(getRateLimitSummary());
+    }
+  });
+
   // ==========================================
   // App Info API
   // ==========================================
@@ -213,6 +299,130 @@ function startServer() {
   });
 
   // ==========================================
+  // Auth & Admin API
+  // ==========================================
+
+  // Get current user info and auth status
+  router.get('/api/auth', (req, res) => {
+    const adminConfig = state.getAdminConfig();
+    const userIdentifier = getUserIdentifier(req.user);
+    
+    res.json({
+      user: req.user ? {
+        email: req.user.email,
+        name: req.user.name,
+        identifier: userIdentifier
+      } : null,
+      isAdmin: req.isAdmin,
+      adminMode: {
+        enabled: adminConfig.enabled,
+        adminCount: adminConfig.admins.length
+      }
+    });
+  });
+
+  // Get admin configuration (admins only when enabled)
+  router.get('/api/admin', (req, res) => {
+    const adminConfig = state.getAdminConfig();
+    
+    // If admin mode is not enabled, return basic info
+    if (!adminConfig.enabled) {
+      return res.json({
+        enabled: false,
+        admins: []
+      });
+    }
+    
+    // Only admins can see the full admin list
+    if (!req.isAdmin) {
+      return res.json({
+        enabled: true,
+        admins: [] // Hide admin list from non-admins
+      });
+    }
+    
+    res.json(adminConfig);
+  });
+
+  // Enable admin mode (first user becomes admin)
+  router.post('/api/admin/enable', async (req, res) => {
+    const userIdentifier = getUserIdentifier(req.user);
+    
+    if (!userIdentifier) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Could not identify user. Ensure you are logged in via ALB OIDC.'
+      });
+    }
+    
+    try {
+      const result = await enableAdminMode(userIdentifier);
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Disable admin mode (admin only)
+  router.post('/api/admin/disable', requireAdmin, async (req, res) => {
+    try {
+      const result = await disableAdminMode();
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Add an admin (admin only)
+  router.post('/api/admin/admins', requireAdmin, async (req, res) => {
+    const { email } = req.body;
+    
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    
+    try {
+      const result = await addAdmin(email.toLowerCase().trim());
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Remove an admin (admin only)
+  router.delete('/api/admin/admins/:email', requireAdmin, async (req, res) => {
+    const email = req.params.email;
+    const currentUserEmail = getUserIdentifier(req.user);
+    
+    if (!currentUserEmail) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    try {
+      const result = await removeAdmin(email.toLowerCase().trim(), currentUserEmail);
+      if (result.success) {
+        res.json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // ==========================================
   // Worker Config API
   // ==========================================
   
@@ -220,23 +430,26 @@ function startServer() {
     res.json(getWorkerConfig());
   });
 
-  router.put('/api/worker-config', async (req, res) => {
+  router.put('/api/worker-config', requireAdmin, async (req, res) => {
     try {
       const newConfig = req.body;
       
       // Validate and merge with defaults
       const validatedConfig: WorkerConfig = {
+        discovery: {
+          runIntervalMinutes: Math.max(1, Math.min(60, newConfig.discovery?.runIntervalMinutes || DEFAULT_WORKER_CONFIG.discovery.runIntervalMinutes)),
+        },
         status: {
-          checkIntervalSeconds: Math.max(10, Math.min(3600, newConfig.status?.checkIntervalSeconds || DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds)),
-          idleIntervalSeconds: Math.max(10, Math.min(3600, newConfig.status?.idleIntervalSeconds || DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds)),
+          runIntervalMinutes: Math.max(1, Math.min(60, newConfig.status?.runIntervalMinutes || DEFAULT_WORKER_CONFIG.status.runIntervalMinutes)),
+          recheckAgeMinutes: Math.max(1, Math.min(60, newConfig.status?.recheckAgeMinutes || DEFAULT_WORKER_CONFIG.status.recheckAgeMinutes)),
           batchSize: Math.max(1, Math.min(50, newConfig.status?.batchSize || DEFAULT_WORKER_CONFIG.status.batchSize)),
         },
         migration: {
+          runIntervalMinutes: Math.max(1, Math.min(60, newConfig.migration?.runIntervalMinutes || DEFAULT_WORKER_CONFIG.migration.runIntervalMinutes)),
           maxConcurrentQueued: Math.max(1, Math.min(100, newConfig.migration?.maxConcurrentQueued || DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued)),
-          checkIntervalSeconds: Math.max(10, Math.min(3600, newConfig.migration?.checkIntervalSeconds || DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds)),
         },
         progress: {
-          pollIntervalSeconds: Math.max(10, Math.min(3600, newConfig.progress?.pollIntervalSeconds || DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds)),
+          runIntervalMinutes: Math.max(1, Math.min(60, newConfig.progress?.runIntervalMinutes || DEFAULT_WORKER_CONFIG.progress.runIntervalMinutes)),
           staleTimeoutMinutes: Math.max(30, Math.min(1440, newConfig.progress?.staleTimeoutMinutes || DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes)),
         },
       };
@@ -244,7 +457,7 @@ function startServer() {
       // Persist to state storage
       await state.setWorkerConfig(validatedConfig);
       
-      console.log(`[${new Date().toISOString()}] Worker config updated and persisted:`, validatedConfig);
+      serverLog.info(`Worker config updated: discovery=${validatedConfig.discovery.runIntervalMinutes}m, status=${validatedConfig.status.runIntervalMinutes}m`);
       res.json(validatedConfig);
     } catch (error) {
       res.status(400).json({ error: String(error) });
@@ -320,7 +533,7 @@ function startServer() {
   });
 
   // Create new sync
-  router.post('/api/syncs', async (req, res) => {
+  router.post('/api/syncs', requireAdmin, async (req, res) => {
     try {
       const { name, source, target, enabled = true, copyFromSyncId } = req.body;
       
@@ -387,7 +600,7 @@ function startServer() {
   });
 
   // Update sync
-  router.put('/api/syncs/:id', async (req, res) => {
+  router.put('/api/syncs/:id', requireAdmin, async (req, res) => {
     try {
       const syncId = req.params.id;
       const existingSync = state.getSyncConfig(syncId);
@@ -445,7 +658,7 @@ function startServer() {
   });
 
   // Archive sync (soft delete)
-  router.delete('/api/syncs/:id', async (req, res) => {
+  router.delete('/api/syncs/:id', requireAdmin, async (req, res) => {
     try {
       const syncId = req.params.id;
       const sync = state.getSyncConfig(syncId);
@@ -465,7 +678,7 @@ function startServer() {
   });
 
   // Unarchive sync
-  router.post('/api/syncs/:id/unarchive', async (req, res) => {
+  router.post('/api/syncs/:id/unarchive', requireAdmin, async (req, res) => {
     try {
       const syncId = req.params.id;
       const sync = state.getSyncConfig(syncId);
@@ -485,7 +698,7 @@ function startServer() {
   });
 
   // Validate sync credentials
-  router.post('/api/syncs/:id/validate', async (req, res) => {
+  router.post('/api/syncs/:id/validate', requireAdmin, async (req, res) => {
     try {
       const syncId = req.params.id;
       const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
@@ -502,7 +715,7 @@ function startServer() {
   });
 
   // Trigger discovery for a sync
-  router.post('/api/syncs/:id/discover', async (req, res) => {
+  router.post('/api/syncs/:id/discover', requireAdmin, async (req, res) => {
     try {
       const syncId = req.params.id;
       const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
@@ -513,7 +726,7 @@ function startServer() {
       
       // Run discovery in background
       discoverRepositoriesForSync(runtimeConfig, broadcastStateUpdate).catch(error => {
-        console.error(`[${new Date().toISOString()}] Error discovering repos for sync ${syncId}:`, error);
+        discoveryLog.error(`Error discovering repos for sync ${syncId}`, error);
       });
       
       res.json({ success: true, message: 'Discovery started' });
@@ -534,7 +747,7 @@ function startServer() {
     res.json(repo);
   });
 
-  router.post('/api/repos/:id/retry', async (req, res) => {
+  router.post('/api/repos/:id/retry', requireAdmin, async (req, res) => {
     const repoId = req.params.id;
     try {
       const repo = state.getRepo(repoId);
@@ -554,7 +767,7 @@ function startServer() {
       }
       
       const { queueSingleRepoForSync } = await import('./workers/migrationWorker');
-      console.log(`[${new Date().toISOString()}] Retry: Queueing ${repo.name}...`);
+      migrationLog.info(`Retry: Queueing ${repo.name}...`);
       await queueSingleRepoForSync(runtimeConfig, repo);
       
       broadcastStateUpdate();
@@ -575,7 +788,7 @@ function startServer() {
     }
   });
 
-  router.post('/api/repos/:id/logs/download', async (req, res) => {
+  router.post('/api/repos/:id/logs/download', requireAdmin, async (req, res) => {
     const repoId = req.params.id;
     try {
       const { downloadLogsById } = await import('./logs');
@@ -590,14 +803,52 @@ function startServer() {
   // Worker API
   // ==========================================
 
-  router.get('/api/status-worker', (req, res) => {
+  router.get('/api/discovery-worker', (req, res) => {
     res.json({
-      running: statusWorkerRunning,
-      currentRepo: statusWorkerCurrentRepo
+      running: discoveryWorkerRunning,
+      currentSync: discoveryWorkerCurrentSync,
+      lastRun: discoveryWorkerLastRun,
+      nextRunAt: discoveryWorkerNextRunAt
     });
   });
 
-  router.post('/api/status-worker/start', (req, res) => {
+  router.post('/api/discovery-worker/start', requireAdmin, (req, res) => {
+    if (!discoveryWorkerRunning) {
+      startDiscoveryWorker();
+      res.json({ success: true, running: true });
+    } else {
+      res.json({ success: false, message: 'Already running' });
+    }
+  });
+
+  router.post('/api/discovery-worker/stop', requireAdmin, (req, res) => {
+    if (discoveryWorkerRunning) {
+      stopDiscoveryWorker();
+      res.json({ success: true, running: false });
+    } else {
+      res.json({ success: false, message: 'Not running' });
+    }
+  });
+
+  router.post('/api/discovery-worker/run-now', requireAdmin, async (req, res) => {
+    try {
+      // Run discovery immediately (in background)
+      runDiscoveryNow();
+      res.json({ success: true, message: 'Discovery started' });
+    } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  router.get('/api/status-worker', (req, res) => {
+    res.json({
+      running: statusWorkerRunning,
+      currentRepo: statusWorkerCurrentRepo,
+      nextRunAt: statusWorkerNextRunAt
+    });
+  });
+
+  router.post('/api/status-worker/start', requireAdmin, (req, res) => {
     if (!statusWorkerRunning) {
       startStatusWorker();
       res.json({ success: true, running: true });
@@ -606,7 +857,7 @@ function startServer() {
     }
   });
 
-  router.post('/api/status-worker/stop', (req, res) => {
+  router.post('/api/status-worker/stop', requireAdmin, (req, res) => {
     if (statusWorkerRunning) {
       stopStatusWorker();
       res.json({ success: true, running: false });
@@ -618,11 +869,12 @@ function startServer() {
   router.get('/api/migration-worker', (req, res) => {
     res.json({
       running: migrationWorkerRunning,
-      currentRepo: migrationWorkerCurrentRepo
+      currentRepo: migrationWorkerCurrentRepo,
+      nextRunAt: migrationWorkerNextRunAt
     });
   });
 
-  router.post('/api/migration-worker/start', (req, res) => {
+  router.post('/api/migration-worker/start', requireAdmin, (req, res) => {
     if (!migrationWorkerRunning) {
       startMigrationWorker();
       res.json({ success: true, running: true });
@@ -631,7 +883,7 @@ function startServer() {
     }
   });
 
-  router.post('/api/migration-worker/stop', (req, res) => {
+  router.post('/api/migration-worker/stop', requireAdmin, (req, res) => {
     if (migrationWorkerRunning) {
       stopMigrationWorker();
       res.json({ success: true, running: false });
@@ -643,11 +895,12 @@ function startServer() {
   router.get('/api/progress-worker', (req, res) => {
     res.json({
       running: progressWorkerRunning,
-      currentRepo: progressWorkerCurrentRepo
+      currentRepo: progressWorkerCurrentRepo,
+      nextRunAt: progressWorkerNextRunAt
     });
   });
 
-  router.post('/api/progress-worker/start', (req, res) => {
+  router.post('/api/progress-worker/start', requireAdmin, (req, res) => {
     if (!progressWorkerRunning) {
       startProgressWorker();
       res.json({ success: true, running: true });
@@ -656,7 +909,7 @@ function startServer() {
     }
   });
 
-  router.post('/api/progress-worker/stop', (req, res) => {
+  router.post('/api/progress-worker/stop', requireAdmin, (req, res) => {
     if (progressWorkerRunning) {
       stopProgressWorker();
       res.json({ success: true, running: false });
@@ -689,18 +942,19 @@ function startServer() {
   // Mount the router at BASE_PATH (e.g., /gitmigrate)
   if (BASE_PATH) {
     app.use(BASE_PATH, router);
-    console.log(`[${new Date().toISOString()}] Routes mounted at ${BASE_PATH}`);
+    serverLog.info(`Routes mounted at ${BASE_PATH}`);
   } else {
     app.use('/', router);
   }
 
   app.listen(serverConfig.port, () => {
-    console.log(`[${new Date().toISOString()}] Server started on port ${serverConfig.port}${BASE_PATH ? ` (base path: ${BASE_PATH})` : ''}`);
+    serverLog.info(`Server started on port ${serverConfig.port}${BASE_PATH ? ` (base path: ${BASE_PATH})` : ''}`);
   });
 
-  // Start heartbeat
+  // Start heartbeat for both state and log SSE clients
   heartbeatInterval = setInterval(() => {
     broadcastSSE('heartbeat', '');
+    sendLogHeartbeat();
   }, serverConfig.sseHeartbeatSeconds * 1000);
 }
 
@@ -723,11 +977,98 @@ function broadcastStateUpdate() {
 // Workers - now iterate over all enabled syncs
 // ==========================================
 
+function startDiscoveryWorker() {
+  if (discoveryWorkerRunning) return;
+  
+  discoveryWorkerRunning = true;
+  discoveryWorkerGeneration++;  // Invalidate any pending callbacks from previous runs
+  const currentGeneration = discoveryWorkerGeneration;
+  
+  discoveryLog.info('Discovery worker started');
+  broadcastStateUpdate();
+  
+  // Run immediately on start, then schedule next run
+  runDiscoveryWorkerTick(currentGeneration);
+}
+
+function stopDiscoveryWorker() {
+  if (!discoveryWorkerRunning) return;
+  
+  discoveryWorkerRunning = false;
+  discoveryWorkerCurrentSync = null;
+  discoveryWorkerNextRunAt = null;
+  
+  if (discoveryWorkerInterval) {
+    clearTimeout(discoveryWorkerInterval);
+    discoveryWorkerInterval = null;
+  }
+  
+  discoveryLog.info('Discovery worker stopped');
+  broadcastStateUpdate();
+}
+
+async function runDiscoveryWorkerTick(generation: number) {
+  // Check if this tick is stale (worker was stopped and restarted)
+  if (!discoveryWorkerRunning || generation !== discoveryWorkerGeneration) return;
+  
+  discoveryWorkerNextRunAt = null;  // Clear while working
+  
+  try {
+    await runDiscoveryForAllSyncs(generation);
+  } catch (error) {
+    discoveryLog.error('Error in discovery worker', error);
+  }
+  
+  // Only schedule next run if we're still the current generation
+  if (!discoveryWorkerRunning || generation !== discoveryWorkerGeneration) return;
+  
+  // Schedule next run
+  const runIntervalMinutes = getWorkerConfig().discovery.runIntervalMinutes;
+  const nextRunMs = runIntervalMinutes * 60 * 1000;
+  discoveryWorkerNextRunAt = new Date(Date.now() + nextRunMs).toISOString();
+  discoveryLog.info(`Next run in ${runIntervalMinutes} minutes`);
+  broadcastStateUpdate();
+  discoveryWorkerInterval = setTimeout(() => runDiscoveryWorkerTick(generation), nextRunMs);
+}
+
+async function runDiscoveryNow() {
+  // Run discovery immediately without affecting the scheduled interval
+  discoveryLog.info('Manual run triggered');
+  await runDiscoveryForAllSyncs(discoveryWorkerGeneration);
+}
+
+async function runDiscoveryForAllSyncs(generation: number) {
+  const syncs = state.getEnabledSyncs();
+  
+  for (const sync of syncs) {
+    // Check if worker was stopped or restarted during iteration
+    if (!discoveryWorkerRunning || generation !== discoveryWorkerGeneration) {
+      break;
+    }
+    
+    try {
+      discoveryWorkerCurrentSync = sync.name;
+      broadcastStateUpdate();
+      
+      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
+      if (!runtimeConfig) continue;
+      
+      await discoverRepositoriesForSync(runtimeConfig, broadcastStateUpdate);
+    } catch (error) {
+      discoveryLog.error(`Error discovering repos for ${sync.name}`, error);
+    }
+  }
+  
+  discoveryWorkerCurrentSync = null;
+  discoveryWorkerLastRun = new Date().toISOString();
+  broadcastStateUpdate();
+}
+
 function startStatusWorker() {
   if (statusWorkerRunning) return;
   
   statusWorkerRunning = true;
-  console.log(`[${new Date().toISOString()}] Status worker started`);
+  statusLog.info('Status worker started');
   broadcastStateUpdate();
   runStatusWorkerTick();
 }
@@ -737,18 +1078,21 @@ function stopStatusWorker() {
   
   statusWorkerRunning = false;
   statusWorkerCurrentRepo = null;
+  statusWorkerNextRunAt = null;
   
   if (statusWorkerInterval) {
     clearTimeout(statusWorkerInterval);
     statusWorkerInterval = null;
   }
   
-  console.log(`[${new Date().toISOString()}] Status worker stopped`);
+  statusLog.info('Status worker stopped');
   broadcastStateUpdate();
 }
 
 async function runStatusWorkerTick() {
   if (!statusWorkerRunning) return;
+  
+  statusWorkerNextRunAt = null;  // Clear while working
   
   try {
     const syncs = state.getEnabledSyncs();
@@ -764,7 +1108,7 @@ async function runStatusWorkerTick() {
       const checkedCount = await checkOldestReposForSync(
         runtimeConfig,
         broadcastStateUpdate,
-        config.status.checkIntervalSeconds,
+        config.status.recheckAgeMinutes,
         config.status.batchSize,
         (repoName) => {
           statusWorkerCurrentRepo = `${sync.name}: ${repoName}`;
@@ -780,13 +1124,18 @@ async function runStatusWorkerTick() {
       totalChecked += checkedCount;
     }
     
-    // Schedule next tick - use idle interval when no work found
+    // Schedule next tick - use run interval when no work found, quick poll when actively working
     const statusConfig = getWorkerConfig().status;
-    const delay = totalChecked > 0 ? 100 : statusConfig.idleIntervalSeconds * 1000;
+    const delay = totalChecked > 0 ? 100 : statusConfig.runIntervalMinutes * 60 * 1000;
+    statusWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
+    broadcastStateUpdate();
     statusWorkerInterval = setTimeout(runStatusWorkerTick, delay);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in status worker:`, error);
-    statusWorkerInterval = setTimeout(runStatusWorkerTick, getWorkerConfig().status.idleIntervalSeconds * 1000);
+    statusLog.error('Error in status worker', error);
+    const delay = getWorkerConfig().status.runIntervalMinutes * 60 * 1000;
+    statusWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
+    broadcastStateUpdate();
+    statusWorkerInterval = setTimeout(runStatusWorkerTick, delay);
   }
 }
 
@@ -794,7 +1143,7 @@ function startMigrationWorker() {
   if (migrationWorkerRunning) return;
   
   migrationWorkerRunning = true;
-  console.log(`[${new Date().toISOString()}] Migration worker started`);
+  migrationLog.info('Migration worker started');
   broadcastStateUpdate();
   runMigrationWorkerTick();
 }
@@ -804,18 +1153,21 @@ function stopMigrationWorker() {
   
   migrationWorkerRunning = false;
   migrationWorkerCurrentRepo = null;
+  migrationWorkerNextRunAt = null;
   
   if (migrationWorkerInterval) {
     clearTimeout(migrationWorkerInterval);
     migrationWorkerInterval = null;
   }
   
-  console.log(`[${new Date().toISOString()}] Migration worker stopped`);
+  migrationLog.info('Migration worker stopped');
   broadcastStateUpdate();
 }
 
 async function runMigrationWorkerTick() {
   if (!migrationWorkerRunning) return;
+  
+  migrationWorkerNextRunAt = null;  // Clear while working
   
   try {
     const syncs = state.getEnabledSyncs();
@@ -828,7 +1180,10 @@ async function runMigrationWorkerTick() {
     
     // Don't queue more if we're at max concurrent
     if (inFlightCount >= migrationConfig.maxConcurrentQueued) {
-      migrationWorkerInterval = setTimeout(runMigrationWorkerTick, migrationConfig.checkIntervalSeconds * 1000);
+      const delay = migrationConfig.runIntervalMinutes * 60 * 1000;
+      migrationWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
+      broadcastStateUpdate();
+      migrationWorkerInterval = setTimeout(runMigrationWorkerTick, delay);
       return;
     }
     
@@ -852,7 +1207,7 @@ async function runMigrationWorkerTick() {
         });
         
         if (repoName) {
-          console.log(`[${new Date().toISOString()}] Migration worker: Queued ${sync.name}/${repoName}`);
+          migrationLog.info(`Queued ${sync.name}/${repoName}`);
           totalQueued++;
           migrationWorkerCurrentRepo = null;
           broadcastStateUpdate();
@@ -864,15 +1219,20 @@ async function runMigrationWorkerTick() {
     }
     
     if (totalQueued > 0) {
-      console.log(`[${new Date().toISOString()}] Migration worker: Queued ${totalQueued} repo(s)`);
+      migrationLog.info(`Queued ${totalQueued} repo(s)`);
     }
     
-    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, migrationConfig.checkIntervalSeconds * 1000);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in migration worker:`, error);
-    migrationWorkerCurrentRepo = null;
+    const delay = migrationConfig.runIntervalMinutes * 60 * 1000;
+    migrationWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
     broadcastStateUpdate();
-    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, 10000);
+    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, delay);
+  } catch (error) {
+    migrationLog.error('Error in migration worker', error);
+    migrationWorkerCurrentRepo = null;
+    const delay = 10000;
+    migrationWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
+    broadcastStateUpdate();
+    migrationWorkerInterval = setTimeout(runMigrationWorkerTick, delay);
   }
 }
 
@@ -880,7 +1240,7 @@ function startProgressWorker() {
   if (progressWorkerRunning) return;
   
   progressWorkerRunning = true;
-  console.log(`[${new Date().toISOString()}] Progress worker started`);
+  progressLog.info('Progress worker started');
   broadcastStateUpdate();
   runProgressWorkerTick();
 }
@@ -890,18 +1250,21 @@ function stopProgressWorker() {
   
   progressWorkerRunning = false;
   progressWorkerCurrentRepo = null;
+  progressWorkerNextRunAt = null;
   
   if (progressWorkerInterval) {
     clearTimeout(progressWorkerInterval);
     progressWorkerInterval = null;
   }
   
-  console.log(`[${new Date().toISOString()}] Progress worker stopped`);
+  progressLog.info('Progress worker stopped');
   broadcastStateUpdate();
 }
 
 async function runProgressWorkerTick() {
   if (!progressWorkerRunning) return;
+  
+  progressWorkerNextRunAt = null;  // Clear while working
   
   try {
     const syncs = state.getEnabledSyncs();
@@ -929,27 +1292,17 @@ async function runProgressWorkerTick() {
       );
     }
     
-    progressWorkerInterval = setTimeout(runProgressWorkerTick, progressConfig.pollIntervalSeconds * 1000);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error in progress worker:`, error);
-    progressWorkerCurrentRepo = null;
+    const delay = progressConfig.runIntervalMinutes * 60 * 1000;
+    progressWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
     broadcastStateUpdate();
-    progressWorkerInterval = setTimeout(runProgressWorkerTick, 10000);
-  }
-}
-
-async function discoverRepositoriesAsync() {
-  const syncs = state.getEnabledSyncs();
-  
-  for (const sync of syncs) {
-    try {
-      const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
-      if (!runtimeConfig) continue;
-      
-      await discoverRepositoriesForSync(runtimeConfig, broadcastStateUpdate);
-    } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error discovering repos for ${sync.name}:`, error);
-    }
+    progressWorkerInterval = setTimeout(runProgressWorkerTick, delay);
+  } catch (error) {
+    progressLog.error('Error in progress worker', error);
+    progressWorkerCurrentRepo = null;
+    const delay = 10000;
+    progressWorkerNextRunAt = new Date(Date.now() + delay).toISOString();
+    broadcastStateUpdate();
+    progressWorkerInterval = setTimeout(runProgressWorkerTick, delay);
   }
 }
 
@@ -966,7 +1319,7 @@ function startBackupScheduler() {
   const performBackup = async () => {
     try {
       if (!fs.existsSync(STATE_FILE)) {
-        console.log(`[${new Date().toISOString()}] Backup: State file not found, skipping`);
+        backupLog.info('State file not found, skipping');
         return;
       }
 
@@ -979,7 +1332,7 @@ function startBackupScheduler() {
       const backupFile = path.join(BACKUP_DIR, `migrations-state-${timestamp}.json`);
 
       await fs.promises.copyFile(STATE_FILE, backupFile);
-      console.log(`[${new Date().toISOString()}] Backup: Created ${path.basename(backupFile)}`);
+      backupLog.info(`Created ${path.basename(backupFile)}`);
 
       const files = await fs.promises.readdir(BACKUP_DIR);
       const backupFiles = files
@@ -991,18 +1344,18 @@ function startBackupScheduler() {
         const toDelete = backupFiles.slice(MAX_BACKUPS);
         for (const file of toDelete) {
           await fs.promises.unlink(path.join(BACKUP_DIR, file));
-          console.log(`[${new Date().toISOString()}] Backup: Deleted old backup ${file}`);
+          backupLog.info(`Deleted old backup ${file}`);
         }
       }
     } catch (error) {
-      console.error(`[${new Date().toISOString()}] Backup: Error creating backup:`, error);
+      backupLog.error('Error creating backup', error);
     }
   };
 
   const now = new Date();
   const msUntilNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000 - now.getMilliseconds();
 
-  console.log(`[${new Date().toISOString()}] Backup scheduler: First backup in ${Math.round(msUntilNextHour / 1000 / 60)} minutes`);
+  backupLog.info(`First backup in ${Math.round(msUntilNextHour / 1000 / 60)} minutes`);
 
   backupInterval = setTimeout(() => {
     performBackup();
@@ -1011,26 +1364,29 @@ function startBackupScheduler() {
 }
 
 async function shutdown() {
-  console.log(`\n[${new Date().toISOString()}] Shutting down gracefully...`);
+  serverLog.info('Shutting down gracefully...');
 
+  if (discoveryWorkerInterval) clearTimeout(discoveryWorkerInterval);
   if (statusWorkerInterval) clearTimeout(statusWorkerInterval);
   if (migrationWorkerInterval) clearTimeout(migrationWorkerInterval);
   if (progressWorkerInterval) clearTimeout(progressWorkerInterval);
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   if (backupInterval) clearTimeout(backupInterval);
 
-  console.log(`[${new Date().toISOString()}] Flushing pending state changes...`);
+  serverLog.info('Flushing pending state changes...');
   await state.flushPendingSaves();
 
   sseClients.forEach(client => {
     try { client.end(); } catch (error) {}
   });
+  
+  closeAllLogSSEClients();
 
-  console.log(`[${new Date().toISOString()}] Shutdown complete`);
+  serverLog.info('Shutdown complete');
   process.exit(0);
 }
 
 main().catch(error => {
-  console.error(`[${new Date().toISOString()}] Fatal error:`, error);
+  serverLog.error('Fatal error', error);
   process.exit(1);
 });

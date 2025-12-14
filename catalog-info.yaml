@@ -11,6 +11,10 @@ metadata:
   annotations:
     github.com/project-slug: Spir-Group/github-migrate
     backstage.io/techdocs-ref: dir:.
+  links:
+    - url: https://github-migrate.ambita.com
+      title: Production Dashboard
+      icon: dashboard
   tags:
     - typescript
     - nodejs

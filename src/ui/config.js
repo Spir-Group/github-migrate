@@ -2,32 +2,66 @@
 
 let state = null;
 let workerConfig = null;
+let authInfo = null;
+let adminConfig = null;
 let eventSource = null;
 let showArchivedSyncs = false;
 
+// Navigation toggle for mobile
+function toggleNav() {
+    const nav = document.getElementById('main-nav');
+    const toggle = document.getElementById('nav-toggle');
+    nav.classList.toggle('open');
+    toggle.classList.toggle('open');
+}
+
+// Close nav when clicking outside
+document.addEventListener('click', (e) => {
+    const nav = document.getElementById('main-nav');
+    const toggle = document.getElementById('nav-toggle');
+    if (nav && toggle && !nav.contains(e.target) && !toggle.contains(e.target)) {
+        nav.classList.remove('open');
+        toggle.classList.remove('open');
+    }
+});
+
 // Default worker configuration values (must match server defaults)
 const DEFAULT_WORKER_CONFIG = {
+    discovery: {
+        runIntervalMinutes: 1,
+    },
     status: {
-        checkIntervalSeconds: 60,
-        idleIntervalSeconds: 60,
+        runIntervalMinutes: 1,
+        recheckAgeMinutes: 5,
         batchSize: 1,
     },
     migration: {
+        runIntervalMinutes: 1,
         maxConcurrentQueued: 10,
-        checkIntervalSeconds: 30,
     },
     progress: {
-        pollIntervalSeconds: 60,
+        runIntervalMinutes: 1,
         staleTimeoutMinutes: 120,
     },
 };
+
+// Worker countdown timers - stores nextRunAt timestamps for countdown display
+let workerCountdowns = {
+    discovery: null,
+    status: null,
+    migration: null,
+    progress: null
+};
+let countdownInterval = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadState();
     loadWorkerConfig();
-    loadAppInfo();
+    loadAllWorkerInfo();
+    loadAuthInfo();
     connectSSE();
+    startCountdownTimer();
 });
 
 // ==========================================
@@ -40,7 +74,6 @@ async function loadState() {
         const response = await fetch(url);
         state = await response.json();
         renderSyncsList();
-        updateGlobalStats();
     } catch (error) {
         console.error('Failed to load state:', error);
     }
@@ -56,25 +89,13 @@ async function loadWorkerConfig() {
     }
 }
 
-async function loadAppInfo() {
-    try {
-        const response = await fetch('/api/info');
-        const info = await response.json();
-        document.getElementById('storage-backend').textContent = info.storageBackend || 'Local File';
-        document.getElementById('base-path').textContent = info.basePath || '/';
-    } catch (error) {
-        document.getElementById('storage-backend').textContent = 'Unknown';
-        document.getElementById('base-path').textContent = '/';
-    }
-}
-
 function connectSSE() {
     eventSource = new EventSource('/events');
 
     eventSource.addEventListener('state', (event) => {
         state = JSON.parse(event.data);
         renderSyncsList();
-        updateGlobalStats();
+        loadAllWorkerInfo();  // Refresh worker status (for countdown timers)
     });
 
     eventSource.addEventListener('heartbeat', () => {});
@@ -86,17 +107,6 @@ function connectSSE() {
             connectSSE();
         }, 5000);
     };
-}
-
-function updateGlobalStats() {
-    if (!state) return;
-    
-    const syncs = Object.values(state.syncs);
-    const activeSyncs = syncs.filter(s => !s.archived && s.enabled);
-    const repos = Object.values(state.repos).filter(r => !r.archived);
-    
-    document.getElementById('active-syncs-count').textContent = activeSyncs.length;
-    document.getElementById('total-repos-count').textContent = repos.length;
 }
 
 // ==========================================
@@ -116,17 +126,20 @@ function populateWorkerConfigForm() {
         }
     };
     
+    // Discovery worker
+    setIfNotDefault('discovery-run-interval', workerConfig.discovery?.runIntervalMinutes, DEFAULT_WORKER_CONFIG.discovery.runIntervalMinutes);
+    
     // Status worker
-    setIfNotDefault('status-check-interval', workerConfig.status?.checkIntervalSeconds, DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds);
-    setIfNotDefault('status-idle-interval', workerConfig.status?.idleIntervalSeconds, DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds);
+    setIfNotDefault('status-run-interval', workerConfig.status?.runIntervalMinutes, DEFAULT_WORKER_CONFIG.status.runIntervalMinutes);
+    setIfNotDefault('status-recheck-age', workerConfig.status?.recheckAgeMinutes, DEFAULT_WORKER_CONFIG.status.recheckAgeMinutes);
     setIfNotDefault('status-batch-size', workerConfig.status?.batchSize, DEFAULT_WORKER_CONFIG.status.batchSize);
     
     // Migration worker
+    setIfNotDefault('migration-run-interval', workerConfig.migration?.runIntervalMinutes, DEFAULT_WORKER_CONFIG.migration.runIntervalMinutes);
     setIfNotDefault('migration-max-concurrent', workerConfig.migration?.maxConcurrentQueued, DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued);
-    setIfNotDefault('migration-check-interval', workerConfig.migration?.checkIntervalSeconds, DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds);
     
     // Progress worker
-    setIfNotDefault('progress-poll-interval', workerConfig.progress?.pollIntervalSeconds, DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds);
+    setIfNotDefault('progress-run-interval', workerConfig.progress?.runIntervalMinutes, DEFAULT_WORKER_CONFIG.progress.runIntervalMinutes);
     setIfNotDefault('progress-stale-timeout', workerConfig.progress?.staleTimeoutMinutes, DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes);
 }
 
@@ -138,17 +151,20 @@ async function saveWorkerConfig() {
     };
     
     const config = {
+        discovery: {
+            runIntervalMinutes: getOrDefault('discovery-run-interval', DEFAULT_WORKER_CONFIG.discovery.runIntervalMinutes),
+        },
         status: {
-            checkIntervalSeconds: getOrDefault('status-check-interval', DEFAULT_WORKER_CONFIG.status.checkIntervalSeconds),
-            idleIntervalSeconds: getOrDefault('status-idle-interval', DEFAULT_WORKER_CONFIG.status.idleIntervalSeconds),
+            runIntervalMinutes: getOrDefault('status-run-interval', DEFAULT_WORKER_CONFIG.status.runIntervalMinutes),
+            recheckAgeMinutes: getOrDefault('status-recheck-age', DEFAULT_WORKER_CONFIG.status.recheckAgeMinutes),
             batchSize: getOrDefault('status-batch-size', DEFAULT_WORKER_CONFIG.status.batchSize),
         },
         migration: {
+            runIntervalMinutes: getOrDefault('migration-run-interval', DEFAULT_WORKER_CONFIG.migration.runIntervalMinutes),
             maxConcurrentQueued: getOrDefault('migration-max-concurrent', DEFAULT_WORKER_CONFIG.migration.maxConcurrentQueued),
-            checkIntervalSeconds: getOrDefault('migration-check-interval', DEFAULT_WORKER_CONFIG.migration.checkIntervalSeconds),
         },
         progress: {
-            pollIntervalSeconds: getOrDefault('progress-poll-interval', DEFAULT_WORKER_CONFIG.progress.pollIntervalSeconds),
+            runIntervalMinutes: getOrDefault('progress-run-interval', DEFAULT_WORKER_CONFIG.progress.runIntervalMinutes),
             staleTimeoutMinutes: getOrDefault('progress-stale-timeout', DEFAULT_WORKER_CONFIG.progress.staleTimeoutMinutes),
         },
     };
@@ -177,6 +193,200 @@ async function saveWorkerConfig() {
     } catch (error) {
         alert(`Error: ${error.message}`);
     }
+}
+
+// ==========================================
+// Worker Control Functions
+// ==========================================
+
+async function loadAllWorkerInfo() {
+    await Promise.all([
+        loadDiscoveryWorkerInfo(),
+        loadStatusWorkerInfo(),
+        loadMigrationWorkerInfo(),
+        loadProgressWorkerInfo()
+    ]);
+}
+
+// Discovery Worker
+async function loadDiscoveryWorkerInfo() {
+    try {
+        const response = await fetch('/api/discovery-worker');
+        const info = await response.json();
+        updateWorkerUI('discovery', info);
+    } catch (error) {
+        console.error('Failed to load discovery worker status:', error);
+    }
+}
+
+async function toggleDiscoveryWorker() {
+    const btn = document.getElementById('discovery-worker-toggle');
+    const isRunning = btn.textContent.trim() === 'Stop';
+    
+    btn.disabled = true;
+    try {
+        const endpoint = isRunning ? '/api/discovery-worker/stop' : '/api/discovery-worker/start';
+        await fetch(endpoint, { method: 'POST' });
+        await loadDiscoveryWorkerInfo();
+    } catch (error) {
+        console.error('Error toggling discovery worker:', error);
+    }
+}
+
+// Status Worker
+async function loadStatusWorkerInfo() {
+    try {
+        const response = await fetch('/api/status-worker');
+        const info = await response.json();
+        updateWorkerUI('status', info);
+    } catch (error) {
+        console.error('Failed to load status worker status:', error);
+    }
+}
+
+async function toggleStatusWorker() {
+    const btn = document.getElementById('status-worker-toggle');
+    const isRunning = btn.textContent.trim() === 'Stop';
+    
+    btn.disabled = true;
+    try {
+        const endpoint = isRunning ? '/api/status-worker/stop' : '/api/status-worker/start';
+        await fetch(endpoint, { method: 'POST' });
+        await loadStatusWorkerInfo();
+    } catch (error) {
+        console.error('Error toggling status worker:', error);
+    }
+}
+
+// Migration Worker
+async function loadMigrationWorkerInfo() {
+    try {
+        const response = await fetch('/api/migration-worker');
+        const info = await response.json();
+        updateWorkerUI('migration', info);
+    } catch (error) {
+        console.error('Failed to load migration worker status:', error);
+    }
+}
+
+async function toggleMigrationWorker() {
+    const btn = document.getElementById('migration-worker-toggle');
+    const isRunning = btn.textContent.trim() === 'Stop';
+    
+    btn.disabled = true;
+    try {
+        const endpoint = isRunning ? '/api/migration-worker/stop' : '/api/migration-worker/start';
+        await fetch(endpoint, { method: 'POST' });
+        await loadMigrationWorkerInfo();
+    } catch (error) {
+        console.error('Error toggling migration worker:', error);
+    }
+}
+
+// Progress Worker
+async function loadProgressWorkerInfo() {
+    try {
+        const response = await fetch('/api/progress-worker');
+        const info = await response.json();
+        updateWorkerUI('progress', info);
+    } catch (error) {
+        console.error('Failed to load progress worker status:', error);
+    }
+}
+
+async function toggleProgressWorker() {
+    const btn = document.getElementById('progress-worker-toggle');
+    const isRunning = btn.textContent.trim() === 'Stop';
+    
+    btn.disabled = true;
+    try {
+        const endpoint = isRunning ? '/api/progress-worker/stop' : '/api/progress-worker/start';
+        await fetch(endpoint, { method: 'POST' });
+        await loadProgressWorkerInfo();
+    } catch (error) {
+        console.error('Error toggling progress worker:', error);
+    }
+}
+
+// Helper to update worker UI elements
+function updateWorkerUI(workerName, info) {
+    const btn = document.getElementById(`${workerName}-worker-toggle`);
+    const statusEl = document.getElementById(`${workerName}-worker-status`);
+    
+    if (!btn || !statusEl) return;
+    
+    btn.disabled = false;
+    
+    // Store nextRunAt for countdown timer
+    workerCountdowns[workerName] = info.nextRunAt || null;
+    
+    if (info.running) {
+        btn.textContent = 'Stop';
+        btn.classList.add('btn-danger');
+        btn.classList.remove('btn-primary');
+        
+        // Check if actively working or sleeping
+        const isWorking = info.currentSync || info.currentRepo;
+        if (isWorking) {
+            statusEl.textContent = `Working: ${info.currentSync || info.currentRepo}`;
+            statusEl.className = 'worker-status worker-status-working';
+        } else if (info.nextRunAt) {
+            // Calculate and display countdown
+            const nextRun = new Date(info.nextRunAt);
+            const secondsRemaining = Math.max(0, Math.floor((nextRun.getTime() - Date.now()) / 1000));
+            statusEl.textContent = `Sleeping ${formatCountdown(secondsRemaining)}`;
+            statusEl.className = 'worker-status worker-status-sleeping';
+        } else {
+            statusEl.textContent = 'Running';
+            statusEl.className = 'worker-status worker-status-running';
+        }
+    } else {
+        btn.textContent = 'Start';
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-danger');
+        statusEl.textContent = 'Stopped';
+        statusEl.className = 'worker-status worker-status-stopped';
+    }
+}
+
+// Format countdown seconds into human-readable string
+function formatCountdown(seconds) {
+    if (seconds < 60) {
+        return `${seconds}s`;
+    } else if (seconds < 3600) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    } else {
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+}
+
+// Start a timer to update countdowns every second
+function startCountdownTimer() {
+    if (countdownInterval) clearInterval(countdownInterval);
+    
+    countdownInterval = setInterval(() => {
+        for (const workerName of Object.keys(workerCountdowns)) {
+            const nextRunAt = workerCountdowns[workerName];
+            if (!nextRunAt) continue;
+            
+            const statusEl = document.getElementById(`${workerName}-worker-status`);
+            if (!statusEl || !statusEl.classList.contains('worker-status-sleeping')) continue;
+            
+            const nextRun = new Date(nextRunAt);
+            const secondsRemaining = Math.max(0, Math.floor((nextRun.getTime() - Date.now()) / 1000));
+            
+            if (secondsRemaining > 0) {
+                statusEl.textContent = `Sleeping ${formatCountdown(secondsRemaining)}`;
+            } else {
+                statusEl.textContent = 'Working...';
+                statusEl.className = 'worker-status worker-status-working';
+            }
+        }
+    }, 1000);
 }
 
 // ==========================================
@@ -650,5 +860,366 @@ document.getElementById('sync-modal')?.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeSyncModal();
+        closeRateLimitsModal();
     }
 });
+
+// ==========================================
+// Rate Limits
+// ==========================================
+
+let rateLimitData = null;
+
+async function loadRateLimits() {
+    try {
+        const response = await fetch('/api/rate-limits');
+        rateLimitData = await response.json();
+        updateRateLimitIndicator();
+    } catch (error) {
+        console.error('Failed to load rate limits:', error);
+    }
+}
+
+function updateRateLimitIndicator() {
+    const statusEl = document.getElementById('rate-limit-status');
+    const indicatorEl = document.getElementById('rate-limit-indicator');
+    
+    if (!statusEl || !indicatorEl) return;
+    
+    if (!rateLimitData || !rateLimitData.hosts || rateLimitData.hosts.length === 0) {
+        statusEl.textContent = 'No data';
+        indicatorEl.className = 'rate-limit-indicator';
+        return;
+    }
+    
+    let worstPercentUsed = 0;
+    let lowestRemaining = Infinity;
+    
+    for (const host of rateLimitData.hosts) {
+        for (const resource of Object.values(host.resources)) {
+            if (resource.percentUsed > worstPercentUsed) {
+                worstPercentUsed = resource.percentUsed;
+            }
+            if (resource.remaining < lowestRemaining) {
+                lowestRemaining = resource.remaining;
+            }
+        }
+    }
+    
+    if (worstPercentUsed >= 80) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-danger';
+    } else if (worstPercentUsed >= 50) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-warning';
+    } else if (lowestRemaining !== Infinity) {
+        statusEl.textContent = `${100 - worstPercentUsed}% left`;
+        indicatorEl.className = 'rate-limit-indicator rate-limit-ok';
+    } else {
+        statusEl.textContent = 'OK';
+        indicatorEl.className = 'rate-limit-indicator rate-limit-ok';
+    }
+}
+
+function showRateLimitsModal() {
+    const modal = document.getElementById('rate-limits-modal');
+    const content = document.getElementById('rate-limits-content');
+    
+    if (!rateLimitData || !rateLimitData.hosts || rateLimitData.hosts.length === 0) {
+        content.innerHTML = `
+            <p style="color: var(--text-secondary);">No rate limit data available yet.</p>
+            <p style="font-size: 13px; color: var(--text-secondary);">Rate limits will be tracked as GitHub API calls are made.</p>
+        `;
+        modal.classList.add('show');
+        return;
+    }
+    
+    let html = '';
+    
+    if (rateLimitData.warnings && rateLimitData.warnings.length > 0) {
+        html += '<div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 10px; margin-bottom: 15px;">';
+        html += '<strong style="color: #856404;">⚠️ Rate Limit Warnings</strong>';
+        html += '<ul style="margin: 10px 0 0 0; padding-left: 20px;">';
+        for (const warning of rateLimitData.warnings) {
+            html += `<li style="color: #856404;">${escapeHtml(warning.host)}/${warning.resource}: ${warning.remaining} remaining (${warning.percentUsed}% used), resets ${formatTimestamp(warning.resetAt)}</li>`;
+        }
+        html += '</ul></div>';
+    }
+    
+    for (const host of rateLimitData.hosts) {
+        html += `<div style="margin-bottom: 20px;">`;
+        html += `<h3 style="margin: 0 0 10px 0; font-size: 16px;">${escapeHtml(host.host)}</h3>`;
+        html += `<table style="width: 100%; border-collapse: collapse; font-size: 14px;">`;
+        html += `<thead><tr style="background: var(--bg-secondary);">
+            <th style="text-align: left; padding: 8px; border: 1px solid var(--border-color);">Resource</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Remaining</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Limit</th>
+            <th style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">Used %</th>
+            <th style="text-align: left; padding: 8px; border: 1px solid var(--border-color);">Resets</th>
+        </tr></thead><tbody>`;
+        
+        for (const [resource, info] of Object.entries(host.resources)) {
+            const percentColor = info.percentUsed >= 80 ? '#dc3545' : info.percentUsed >= 50 ? '#ffc107' : '#28a745';
+            html += `<tr>
+                <td style="padding: 8px; border: 1px solid var(--border-color);">${escapeHtml(resource)}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">${info.remaining.toLocaleString()}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color);">${info.limit.toLocaleString()}</td>
+                <td style="text-align: right; padding: 8px; border: 1px solid var(--border-color); color: ${percentColor}; font-weight: bold;">${info.percentUsed}%</td>
+                <td style="padding: 8px; border: 1px solid var(--border-color);">${formatTimestamp(info.resetAt)}</td>
+            </tr>`;
+        }
+        
+        html += '</tbody></table>';
+        html += `<div style="font-size: 12px; color: var(--text-secondary); margin-top: 5px;">Last updated: ${formatTimestamp(host.updatedAt)}</div>`;
+        html += '</div>';
+    }
+    
+    content.innerHTML = html;
+    modal.classList.add('show');
+}
+
+function closeRateLimitsModal() {
+    document.getElementById('rate-limits-modal')?.classList.remove('show');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// ==========================================
+// Auth & Admin Management
+// ==========================================
+
+async function loadAuthInfo() {
+    try {
+        // Load auth info
+        const authResponse = await fetch('/api/auth');
+        authInfo = await authResponse.json();
+        
+        // Load admin config
+        const adminResponse = await fetch('/api/admin');
+        adminConfig = await adminResponse.json();
+        
+        renderAdminSection();
+        updateReadOnlyState();
+    } catch (error) {
+        console.error('Failed to load auth info:', error);
+    }
+}
+
+function renderAdminSection() {
+    if (!authInfo) return;
+    
+    // Render current user info
+    const userInfoEl = document.getElementById('current-user-info');
+    if (authInfo.user) {
+        const statusBadge = authInfo.isAdmin 
+            ? '<span class="badge badge-admin" style="background: #28a745; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">Administrator</span>'
+            : '<span class="badge badge-readonly" style="background: #6c757d; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">Read-Only</span>';
+        
+        userInfoEl.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span><strong>${escapeHtml(authInfo.user.name || authInfo.user.email || 'Unknown')}</strong></span>
+                ${statusBadge}
+            </div>
+            <div style="color: var(--text-secondary); font-size: 14px; margin-top: 5px;">
+                ${escapeHtml(authInfo.user.email || authInfo.user.identifier || '')}
+            </div>
+        `;
+    } else {
+        userInfoEl.innerHTML = `
+            <p style="color: var(--text-secondary);">Not logged in (running locally without ALB OIDC)</p>
+            <p class="field-hint" style="margin-top: 5px;">
+                To test authentication locally, set <code>LOCAL_DEV_USER=your@email.com</code> environment variable.
+            </p>
+        `;
+    }
+    
+    // Show/hide admin mode controls based on state
+    const disabledDiv = document.getElementById('admin-mode-disabled');
+    const enabledDiv = document.getElementById('admin-mode-enabled');
+    const adminListSection = document.getElementById('admin-list-section');
+    const readOnlyNotice = document.getElementById('read-only-notice');
+    const enableBtn = document.getElementById('enable-admin-btn');
+    const disableBtn = document.getElementById('disable-admin-btn');
+    
+    if (adminConfig?.enabled) {
+        disabledDiv.style.display = 'none';
+        enabledDiv.style.display = 'block';
+        
+        // Only show admin list and controls if user is admin
+        if (authInfo.isAdmin) {
+            adminListSection.style.display = 'block';
+            readOnlyNotice.style.display = 'none';
+            disableBtn.disabled = false;
+            renderAdminList();
+        } else {
+            adminListSection.style.display = 'none';
+            readOnlyNotice.style.display = 'block';
+            disableBtn.disabled = true;
+        }
+    } else {
+        disabledDiv.style.display = 'block';
+        enabledDiv.style.display = 'none';
+        adminListSection.style.display = 'none';
+        readOnlyNotice.style.display = 'none';
+        
+        // Enable button only if user is identified
+        enableBtn.disabled = !authInfo.user;
+    }
+}
+
+function renderAdminList() {
+    const adminListEl = document.getElementById('admin-list');
+    
+    if (!adminConfig?.admins || adminConfig.admins.length === 0) {
+        adminListEl.innerHTML = '<p style="color: var(--text-secondary);">No administrators configured.</p>';
+        return;
+    }
+    
+    const currentUser = authInfo?.user?.email || authInfo?.user?.identifier;
+    
+    adminListEl.innerHTML = adminConfig.admins.map(email => `
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 8px;">
+            <span>${escapeHtml(email)}</span>
+            <button class="btn btn-small btn-danger" onclick="removeAdmin('${escapeHtml(email)}')" 
+                    ${adminConfig.admins.length === 1 ? 'disabled title="Cannot remove the last administrator"' : ''}>
+                Remove
+            </button>
+        </div>
+    `).join('');
+}
+
+async function enableAdminMode() {
+    if (!authInfo?.user) {
+        alert('You must be logged in to enable admin mode.');
+        return;
+    }
+    
+    if (!confirm('Enable admin mode? You will become the first administrator. Other users will be in read-only mode.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/enable', { method: 'POST' });
+        const result = await response.json();
+        
+        if (response.ok) {
+            alert(result.message);
+            await loadAuthInfo();
+        } else {
+            alert(`Error: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+async function disableAdminMode() {
+    if (!confirm('Disable admin mode? All users will have full access.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/disable', { method: 'POST' });
+        const result = await response.json();
+        
+        if (response.ok) {
+            alert(result.message);
+            await loadAuthInfo();
+        } else {
+            alert(`Error: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+async function addNewAdmin() {
+    const emailInput = document.getElementById('new-admin-email');
+    const email = emailInput.value.trim().toLowerCase();
+    
+    if (!email) {
+        alert('Please enter an email address.');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/admin/admins', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const result = await response.json();
+        
+        if (response.ok) {
+            emailInput.value = '';
+            await loadAuthInfo();
+        } else {
+            alert(`Error: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+async function removeAdmin(email) {
+    if (!confirm(`Remove ${email} from administrators?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/admin/admins/${encodeURIComponent(email)}`, { method: 'DELETE' });
+        const result = await response.json();
+        
+        if (response.ok) {
+            await loadAuthInfo();
+        } else {
+            alert(`Error: ${result.message || result.error}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+function updateReadOnlyState() {
+    if (!authInfo) return;
+    
+    const isReadOnly = authInfo.adminMode?.enabled && !authInfo.isAdmin;
+    
+    // Disable all buttons and inputs if in read-only mode
+    if (isReadOnly) {
+        // Disable sync section buttons
+        document.querySelectorAll('.syncs-list button').forEach(btn => {
+            btn.disabled = true;
+            btn.title = 'Read-only mode: Administrator access required';
+        });
+        
+        // Disable worker config save button
+        const saveBtn = document.querySelector('button[onclick="saveWorkerConfig()"]');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.title = 'Read-only mode: Administrator access required';
+        }
+        
+        // Disable worker toggle buttons
+        document.querySelectorAll('.worker-button').forEach(btn => {
+            btn.disabled = true;
+            btn.title = 'Read-only mode: Administrator access required';
+        });
+        
+        // Disable all inputs in worker config
+        document.querySelectorAll('.worker-config-grid input').forEach(input => {
+            input.disabled = true;
+        });
+        
+        // Disable add sync button
+        const addSyncBtn = document.querySelector('button[onclick="openSyncModal()"]');
+        if (addSyncBtn) {
+            addSyncBtn.disabled = true;
+            addSyncBtn.title = 'Read-only mode: Administrator access required';
+        }
+    }
+}

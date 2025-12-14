@@ -4,18 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuration - GitHub Migration Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23333'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
             <div class="header-content">
-                <div class="header-left">
-                    <h1>Configuration</h1>
-                    <div id="info">Manage sync configurations and worker settings</div>
+                <div class="site-branding">
+                    <h1 class="site-title">GitHub Migration Dashboard</h1>
+                    <span class="site-subtitle"><a href="https://spirgroup.dev/docs/spir/component/github-migrate" target="_blank">a SpirGroup project</a></span>
                 </div>
-                <div class="header-actions">
-                    <a href="/" class="btn">← Back to Dashboard</a>
+                <div class="header-right">
+                    <button class="hamburger" id="nav-toggle" onclick="toggleNav()">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <nav class="main-nav" id="main-nav">
+                        <a href="/" class="nav-link">Dashboard</a>
+                        <a href="/config" class="nav-link active">Config</a>
+                        <a href="/logs" class="nav-link">Logs</a>
+                    </nav>
                 </div>
             </div>
         </header>
@@ -41,7 +51,7 @@
             <!-- Worker Parameters Section -->
             <section class="config-section">
                 <div class="section-header">
-                    <h2>Worker Parameters</h2>
+                    <h2>Worker Configuration</h2>
                     <button class="btn btn-primary" onclick="saveWorkerConfig()">Save Changes</button>
                 </div>
                 <div id="worker-config-saved" class="save-message" style="display: none;">
@@ -49,21 +59,45 @@
                 </div>
                 
                 <div class="worker-config-grid">
+                    <!-- Discovery Worker -->
+                    <div class="config-card">
+                        <div class="worker-card-header">
+                            <h3>Discovery Worker (Discoverer)</h3>
+                            <div class="worker-control">
+                                <button class="worker-button" id="discovery-worker-toggle" onclick="toggleDiscoveryWorker()" disabled>...</button>
+                                <span class="worker-status" id="discovery-worker-status">Loading...</span>
+                            </div>
+                        </div>
+                        <p class="config-description">Discovers new repositories in source organizations.</p>
+                        
+                        <div class="form-group">
+                            <label for="discovery-run-interval">Run Interval (minutes)</label>
+                            <input type="number" id="discovery-run-interval" min="1" max="60" placeholder="1">
+                            <span class="field-hint">How often to scan for new repositories (1-60 min)</span>
+                        </div>
+                    </div>
+                    
                     <!-- Status Worker -->
                     <div class="config-card">
-                        <h3>Status Worker (Checker)</h3>
+                        <div class="worker-card-header">
+                            <h3>Status Worker (Checker)</h3>
+                            <div class="worker-control">
+                                <button class="worker-button" id="status-worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
+                                <span class="worker-status" id="status-worker-status">Loading...</span>
+                            </div>
+                        </div>
                         <p class="config-description">Checks if repositories need syncing by comparing source and target.</p>
                         
                         <div class="form-group">
-                            <label for="status-check-interval">Check Interval (seconds)</label>
-                            <input type="number" id="status-check-interval" min="10" max="3600" placeholder="60">
-                            <span class="field-hint">How often to check repositories when actively working</span>
+                            <label for="status-run-interval">Run Interval (minutes)</label>
+                            <input type="number" id="status-run-interval" min="1" max="60" placeholder="1">
+                            <span class="field-hint">How often to run the worker (1-60 min)</span>
                         </div>
                         
                         <div class="form-group">
-                            <label for="status-idle-interval">Idle Interval (seconds)</label>
-                            <input type="number" id="status-idle-interval" min="10" max="3600" placeholder="60">
-                            <span class="field-hint">Delay when no repositories need checking</span>
+                            <label for="status-recheck-age">Recheck Age (minutes)</label>
+                            <input type="number" id="status-recheck-age" min="1" max="60" placeholder="5">
+                            <span class="field-hint">Minimum time before a repo is eligible for re-checking</span>
                         </div>
                         
                         <div class="form-group">
@@ -75,31 +109,43 @@
                     
                     <!-- Migration Worker -->
                     <div class="config-card">
-                        <h3>Migration Worker (Queuer)</h3>
+                        <div class="worker-card-header">
+                            <h3>Migration Worker (Queuer)</h3>
+                            <div class="worker-control">
+                                <button class="worker-button" id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
+                                <span class="worker-status" id="migration-worker-status">Loading...</span>
+                            </div>
+                        </div>
                         <p class="config-description">Queues unsynced repositories for migration via GEI.</p>
+                        
+                        <div class="form-group">
+                            <label for="migration-run-interval">Run Interval (minutes)</label>
+                            <input type="number" id="migration-run-interval" min="1" max="60" placeholder="1">
+                            <span class="field-hint">How often to look for new work (1-60 min)</span>
+                        </div>
                         
                         <div class="form-group">
                             <label for="migration-max-concurrent">Max Concurrent Queued</label>
                             <input type="number" id="migration-max-concurrent" min="1" max="100" placeholder="10">
                             <span class="field-hint">Maximum number of migrations to queue at once</span>
                         </div>
-                        
-                        <div class="form-group">
-                            <label for="migration-check-interval">Check Interval (seconds)</label>
-                            <input type="number" id="migration-check-interval" min="10" max="3600" placeholder="30">
-                            <span class="field-hint">How often to look for new work</span>
-                        </div>
                     </div>
                     
                     <!-- Progress Worker -->
                     <div class="config-card">
-                        <h3>Progress Worker (Reporter)</h3>
+                        <div class="worker-card-header">
+                            <h3>Progress Worker (Reporter)</h3>
+                            <div class="worker-control">
+                                <button class="worker-button" id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
+                                <span class="worker-status" id="progress-worker-status">Loading...</span>
+                            </div>
+                        </div>
                         <p class="config-description">Monitors migration progress and updates status.</p>
                         
                         <div class="form-group">
-                            <label for="progress-poll-interval">Poll Interval (seconds)</label>
-                            <input type="number" id="progress-poll-interval" min="10" max="3600" placeholder="60">
-                            <span class="field-hint">How often to check migration progress</span>
+                            <label for="progress-run-interval">Run Interval (minutes)</label>
+                            <input type="number" id="progress-run-interval" min="1" max="60" placeholder="1">
+                            <span class="field-hint">How often to check migration progress (1-60 min)</span>
                         </div>
                         
                         <div class="form-group">
@@ -111,33 +157,77 @@
                 </div>
             </section>
 
-            <!-- Global Settings Section -->
-            <section class="config-section">
+            <!-- Administrators Section -->
+            <section class="config-section" id="admin-section">
                 <div class="section-header">
-                    <h2>Global Settings</h2>
+                    <h2>Administrators</h2>
                 </div>
                 
-                <div class="global-settings">
-                    <div class="form-group">
-                        <label>Storage Backend</label>
-                        <div class="readonly-value" id="storage-backend">-</div>
-                        <span class="field-hint">Configured via environment variables</span>
+                <div id="admin-content">
+                    <!-- User info -->
+                    <div class="config-card" style="margin-bottom: 20px;">
+                        <h3>Current User</h3>
+                        <div id="current-user-info">
+                            <p>Loading...</p>
+                        </div>
+                    </div>
+
+                    <!-- Admin mode toggle -->
+                    <div class="config-card" style="margin-bottom: 20px;">
+                        <h3>Admin Mode</h3>
+                        <p class="config-description">When enabled, only administrators can make changes. Other users can only view.</p>
+                        
+                        <div id="admin-mode-controls" style="margin-top: 15px;">
+                            <div id="admin-mode-disabled" style="display: none;">
+                                <p style="margin-bottom: 10px; color: var(--text-secondary);">
+                                    Admin mode is <strong>disabled</strong>. All users have full access.
+                                </p>
+                                <button class="btn btn-primary" onclick="enableAdminMode()" id="enable-admin-btn">
+                                    Enable Admin Mode
+                                </button>
+                                <span class="field-hint" style="display: block; margin-top: 10px;">
+                                    You will become the first administrator when enabling admin mode.
+                                </span>
+                            </div>
+                            <div id="admin-mode-enabled" style="display: none;">
+                                <p style="margin-bottom: 10px; color: var(--text-secondary);">
+                                    Admin mode is <strong>enabled</strong>. Only administrators can make changes.
+                                </p>
+                                <button class="btn btn-danger" onclick="disableAdminMode()" id="disable-admin-btn">
+                                    Disable Admin Mode
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Admin list (only visible when admin mode is enabled and user is admin) -->
+                    <div class="config-card" id="admin-list-section" style="display: none;">
+                        <h3>Administrator List</h3>
+                        <p class="config-description">Users with administrator access.</p>
+                        
+                        <div id="admin-list" style="margin-top: 15px;">
+                            <!-- Admin list will be rendered here -->
+                        </div>
+                        
+                        <div id="add-admin-form" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                            <div class="form-group" style="display: flex; gap: 10px; align-items: flex-end;">
+                                <div style="flex: 1;">
+                                    <label for="new-admin-email">Add Administrator</label>
+                                    <input type="email" id="new-admin-email" placeholder="user@example.com" autocomplete="off">
+                                </div>
+                                <button type="button" class="btn btn-primary" onclick="addNewAdmin()" style="margin-bottom: 20px;">
+                                    Add
+                                </button>
+                            </div>
+                        </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label>Base Path</label>
-                        <div class="readonly-value" id="base-path">-</div>
-                        <span class="field-hint">URL base path for routing (from BASE_PATH env var)</span>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Active Syncs</label>
-                        <div class="readonly-value" id="active-syncs-count">-</div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>Total Repositories</label>
-                        <div class="readonly-value" id="total-repos-count">-</div>
+                    <!-- Read-only notice for non-admins -->
+                    <div id="read-only-notice" style="display: none; padding: 15px; background: var(--bg-tertiary); border-radius: 4px; border-left: 4px solid #f0ad4e;">
+                        <strong>Read-Only Mode</strong>
+                        <p style="margin-top: 5px; color: var(--text-secondary);">
+                            You are viewing in read-only mode. Contact an administrator for write access.
+                        </p>
                     </div>
                 </div>
             </section>

@@ -13,6 +13,10 @@ Web dashboard for managing GitHub Enterprise Importer (GEI) migrations with real
 - **Background Workers** – Discovery, Status, Migration, and Progress workers
 - **Smart Sync Detection** – Compare source and target timestamps automatically
 - **Flexible Storage** – Local JSON file or AWS DynamoDB
+- **Rate Limit Tracking** – Monitor GitHub API usage across all hosts
+- **Live Logs** – Real-time application logs with filtering and search
+- **Admin Mode** – Optional read-only mode for non-administrators
+- **Mobile-Responsive** – Hamburger menu and responsive layout for mobile devices
 
 ## Running Locally
 

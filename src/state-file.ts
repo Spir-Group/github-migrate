@@ -10,16 +10,20 @@ import {
   SyncRuntimeConfig,
   HostConfig,
   WorkerConfig,
-  DEFAULT_WORKER_CONFIG
+  DEFAULT_WORKER_CONFIG,
+  AdminConfig,
+  DEFAULT_ADMIN_CONFIG
 } from './types';
 import { loadAndMigrateState } from './migration';
+import { stateLog } from './logger';
 
-export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig };
+export type { MigrationStatus, RepoVisibility, RepoState, SyncConfig, AppState, SyncRuntimeConfig, HostConfig, WorkerConfig, AdminConfig };
 
 // Use DATA_DIR env var if set, otherwise default to ./data
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 const STATE_FILE = path.join(DATA_DIR, 'migrations-state.json');
 const WORKER_CONFIG_FILE = path.join(DATA_DIR, 'worker-config.json');
+const ADMIN_CONFIG_FILE = path.join(DATA_DIR, 'admin-config.json');
 const DEBOUNCE_MS = 10000; // 10 seconds
 
 let writeMutex = Promise.resolve();
@@ -34,6 +38,7 @@ let currentState: AppState = {
 };
 
 let workerConfig: WorkerConfig = { ...DEFAULT_WORKER_CONFIG };
+let adminConfig: AdminConfig = { ...DEFAULT_ADMIN_CONFIG };
 
 // ============================================
 // Initialization
@@ -42,6 +47,7 @@ let workerConfig: WorkerConfig = { ...DEFAULT_WORKER_CONFIG };
 export function initState(): void {
   currentState = loadAndMigrateState();
   loadWorkerConfig();
+  loadAdminConfig();
 }
 
 function loadWorkerConfig(): void {
@@ -51,16 +57,17 @@ function loadWorkerConfig(): void {
       const loaded = JSON.parse(data) as Partial<WorkerConfig>;
       // Deep merge with defaults to handle missing fields
       workerConfig = {
+        discovery: { ...DEFAULT_WORKER_CONFIG.discovery, ...loaded.discovery },
         status: { ...DEFAULT_WORKER_CONFIG.status, ...loaded.status },
         migration: { ...DEFAULT_WORKER_CONFIG.migration, ...loaded.migration },
         progress: { ...DEFAULT_WORKER_CONFIG.progress, ...loaded.progress },
       };
-      console.log(`[${new Date().toISOString()}] Loaded worker config from ${WORKER_CONFIG_FILE}`);
+      stateLog.info(`Loaded worker config from ${WORKER_CONFIG_FILE}`);
     } else {
-      console.log(`[${new Date().toISOString()}] No worker config file, using defaults`);
+      stateLog.info('No worker config file, using defaults');
     }
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error loading worker config, using defaults:`, error);
+    stateLog.error('Error loading worker config, using defaults', error);
   }
 }
 
@@ -443,9 +450,53 @@ function saveWorkerConfig(): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(WORKER_CONFIG_FILE, JSON.stringify(workerConfig, null, 2), 'utf8');
-    console.log(`[${new Date().toISOString()}] Saved worker config to ${WORKER_CONFIG_FILE}`);
+    stateLog.info(`Saved worker config to ${WORKER_CONFIG_FILE}`);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error saving worker config:`, error);
+    stateLog.error('Error saving worker config', error);
+  }
+}
+
+// ============================================
+// Admin Config
+// ============================================
+
+function loadAdminConfig(): void {
+  try {
+    if (fs.existsSync(ADMIN_CONFIG_FILE)) {
+      const data = fs.readFileSync(ADMIN_CONFIG_FILE, 'utf8');
+      const loaded = JSON.parse(data) as Partial<AdminConfig>;
+      adminConfig = {
+        enabled: loaded.enabled ?? DEFAULT_ADMIN_CONFIG.enabled,
+        admins: loaded.admins ?? DEFAULT_ADMIN_CONFIG.admins,
+      };
+      stateLog.info(`Loaded admin config from ${ADMIN_CONFIG_FILE}`);
+    } else {
+      stateLog.info('No admin config file, using defaults');
+    }
+  } catch (error) {
+    stateLog.error('Error loading admin config, using defaults', error);
+  }
+}
+
+export function getAdminConfig(): AdminConfig {
+  return adminConfig;
+}
+
+export function setAdminConfig(config: AdminConfig): void {
+  adminConfig = config;
+  saveAdminConfig();
+}
+
+function saveAdminConfig(): void {
+  try {
+    const dir = path.dirname(ADMIN_CONFIG_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(ADMIN_CONFIG_FILE, JSON.stringify(adminConfig, null, 2), 'utf8');
+    stateLog.info(`Saved admin config to ${ADMIN_CONFIG_FILE}`);
+  } catch (error) {
+    stateLog.error('Error saving admin config', error);
   }
 }
 
@@ -531,7 +582,7 @@ async function doSaveState(): Promise<void> {
     fs.writeFileSync(tempFile, JSON.stringify(currentState, null, 2), 'utf8');
     fs.renameSync(tempFile, STATE_FILE);
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error saving state:`, error);
+    stateLog.error('Error saving state', error);
     throw error;
   }
 }

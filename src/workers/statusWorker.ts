@@ -1,6 +1,7 @@
 import { SyncRuntimeConfig } from '../types';
 import * as state from '../state-index';
 import { needsMigration, getRepoMetadata } from '../github';
+import { statusLog } from '../logger';
 
 /**
  * Check oldest repos for a specific sync
@@ -46,17 +47,18 @@ export async function checkOldestReposForSync(
   let reposNeedingCheck: state.RepoState[];
   if (unknownRepos.length > 0) {
     reposNeedingCheck = unknownRepos.slice(0, batchSize);
-    console.log(`[${new Date().toISOString()}] Status worker: Checking ${reposNeedingCheck.length} of ${unknownRepos.length} unknown repositories for sync "${config.name}"...`);
+    statusLog.info(`Checking ${reposNeedingCheck.length} of ${unknownRepos.length} unknown repositories for sync "${config.name}"...`);
   } else {
     reposNeedingCheck = otherReposNeedingCheck;
     if (reposNeedingCheck.length === 0) {
       return 0;
     }
+    statusLog.info(`Rechecking ${reposNeedingCheck.length} repositories for sync "${config.name}"...`);
   }
 
   for (const repo of reposNeedingCheck) {
     if (shouldStop && shouldStop()) {
-      console.log(`[${new Date().toISOString()}] Status worker: Stopping check (worker disabled)`);
+      statusLog.info('Stopping check (worker disabled)');
       if (onRepoEnd) onRepoEnd();
       return 0;
     }
@@ -93,11 +95,11 @@ async function recheckRepoStatus(
     });
     
     if (oldStatus !== newStatus) {
-      console.log(`[${new Date().toISOString()}] Status worker: ${repo.name}: ${oldStatus} -> ${newStatus}`);
+      statusLog.info(`${repo.name}: ${oldStatus} -> ${newStatus}`);
     }
     
     if (onUpdate) onUpdate();
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error rechecking ${repo.name}:`, error);
+    statusLog.error(`Error rechecking ${repo.name}`, error);
   }
 }

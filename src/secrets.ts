@@ -1,4 +1,5 @@
 import { SSMClient, GetParameterCommand, PutParameterCommand } from '@aws-sdk/client-ssm';
+import { secretsLog } from './logger';
 
 const SSM_PATS_PARAMETER = process.env.SSM_PATS_PARAMETER || '/container/git-migrate/dev/secrets/github-pats';
 const USE_SSM = !!process.env.SSM_PATS_PARAMETER;
@@ -54,10 +55,10 @@ export async function getPatsFromParameterStore(): Promise<GitHubPats | null> {
     }
   } catch (error: any) {
     if (error.name === 'ParameterNotFound') {
-      console.log(`[${new Date().toISOString()}] PATs parameter not found, will create on first save`);
+      secretsLog.info('PATs parameter not found, will create on first save');
       return { syncs: {} };
     }
-    console.error(`[${new Date().toISOString()}] Error fetching PATs from Parameter Store:`, error);
+    secretsLog.error('Error fetching PATs from Parameter Store', error);
   }
 
   return null;
@@ -72,7 +73,7 @@ export async function updatePatsInParameterStore(
   targetToken: string
 ): Promise<boolean> {
   if (!USE_SSM) {
-    console.log(`[${new Date().toISOString()}] SSM not configured, skipping PAT storage`);
+    secretsLog.info('SSM not configured, skipping PAT storage');
     return false;
   }
 
@@ -102,10 +103,10 @@ export async function updatePatsInParameterStore(
     patsCache = pats;
     patsCacheExpiry = Date.now() + PATS_CACHE_TTL_MS;
 
-    console.log(`[${new Date().toISOString()}] Updated PATs for sync ${syncId} in Parameter Store`);
+    secretsLog.info(`Updated PATs for sync ${syncId} in Parameter Store`);
     return true;
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error updating PATs in Parameter Store:`, error);
+    secretsLog.error(`Error updating PATs in Parameter Store`, error);
     return false;
   }
 }
@@ -141,10 +142,10 @@ export async function removePatsFromParameterStore(syncId: string): Promise<bool
     patsCache = pats;
     patsCacheExpiry = Date.now() + PATS_CACHE_TTL_MS;
 
-    console.log(`[${new Date().toISOString()}] Removed PATs for sync ${syncId} from Parameter Store`);
+    secretsLog.info(`Removed PATs for sync ${syncId} from Parameter Store`);
     return true;
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error removing PATs from Parameter Store:`, error);
+    secretsLog.error(`Error removing PATs from Parameter Store`, error);
     return false;
   }
 }

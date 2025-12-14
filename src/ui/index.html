@@ -4,57 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GitHub Migration Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='7' fill='%23333'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
             <div class="header-content">
-                <div class="header-left">
-                    <h1>GitHub Migration Dashboard</h1>
-                    <div id="info"></div>
-                    <div class="summary-stats" style="margin-top: 10px; font-size: 14px; color: var(--text-secondary);">
-                        <div style="display: flex; gap: 30px; margin-bottom: 5px;">
-                            <div><strong>Synced up to:</strong> <span id="sync-point">-</span></div>
-                            <div><strong>Total size:</strong> <span id="total-size">-</span></div>
-                            <div><strong>Total duration:</strong> <span id="total-duration">-</span></div>
-                        </div>
-                        <div style="display: flex; gap: 30px;">
-                            <div><strong>Total wall time (10 in parallel):</strong> <span id="wall-time">-</span></div>
-                            <div><strong>Duration/MB:</strong> <span id="duration-per-mb">-</span></div>
-                        </div>
-                    </div>
+                <div class="site-branding">
+                    <h1 class="site-title">GitHub Migration Dashboard</h1>
+                    <span class="site-subtitle"><a href="https://spirgroup.dev/docs/spir/component/github-migrate" target="_blank">a SpirGroup project</a></span>
                 </div>
                 <div class="header-right">
-                    <a href="/config" class="btn" style="margin-bottom: 12px;">⚙️ Configuration</a>
-                    <div class="workers-control">
-                        <div class="worker-row">
-                            <button class="worker-button" id="worker-toggle" onclick="toggleStatusWorker()" disabled>...</button>
-                            <div class="worker-info">
-                                <span class="worker-name" title="Worker that checks if unknown repos should be synced">Checker</span>
-                                <span class="worker-status" id="worker-status">Initializing...</span>
-                            </div>
-                        </div>
-                        <div class="worker-row">
-                            <button class="worker-button" id="migration-worker-toggle" onclick="toggleMigrationWorker()" disabled>...</button>
-                            <div class="worker-info">
-                                <span class="worker-name" title="Worker that queues unsynced repos with GEI">Queuer</span>
-                                <span class="worker-status" id="migration-worker-status">Initializing...</span>
-                            </div>
-                        </div>
-                        <div class="worker-row">
-                            <button class="worker-button" id="progress-worker-toggle" onclick="toggleProgressWorker()" disabled>...</button>
-                            <div class="worker-info">
-                                <span class="worker-name" title="Worker that checks progress of migrations">Reporter</span>
-                                <span class="worker-status" id="progress-worker-status">Initializing...</span>
-                            </div>
-                        </div>
-                    </div>
+                    <button class="hamburger" id="nav-toggle" onclick="toggleNav()">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <nav class="main-nav" id="main-nav">
+                        <a href="/" class="nav-link active">Dashboard</a>
+                        <a href="/config" class="nav-link">Config</a>
+                        <a href="/logs" class="nav-link">Logs</a>
+                    </nav>
                 </div>
             </div>
         </header>
 
         <main>
+            <div class="page-header">
+                <div class="summary-stats">
+                    <div style="display: flex; gap: 20px; align-items: center; flex-wrap: wrap;">
+                        <div><strong>Synced up to:</strong> <span id="sync-point">-</span></div>
+                        <div><strong>Total size:</strong> <span id="total-size">-</span></div>
+                        <div><strong>Total duration:</strong> <span id="total-duration">-</span></div>
+                        <div><strong>Wall time (10∥):</strong> <span id="wall-time">-</span></div>
+                        <div><strong>Duration/MB:</strong> <span id="duration-per-mb">-</span></div>
+                        <div id="rate-limit-indicator" class="rate-limit-indicator" title="GitHub API Rate Limits" onclick="showRateLimitsModal()">
+                            <span class="rate-limit-icon">⚡</span>
+                            <span id="rate-limit-status">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="stats">
                 <div class="stat-box" onclick="filterByStatBox('all')" style="cursor: pointer;">
                     <div class="stat-label">Total</div>
@@ -158,6 +149,19 @@
             </div>
             <div class="modal-body">
                 <div id="details-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for rate limits -->
+    <div id="rate-limits-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>GitHub API Rate Limits</h2>
+                <button class="close-btn" onclick="closeRateLimitsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="rate-limits-content"></div>
             </div>
         </div>
     </div>

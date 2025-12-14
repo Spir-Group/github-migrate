@@ -2,6 +2,8 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { HostConfig } from './config';
 import { RepoVisibility } from './types';
+import { githubLog } from './logger';
+import { fetchWithRateLimitTracking, parseRateLimitFromGhOutput, updateRateLimit, RateLimitInfo } from './rate-limit';
 
 // Path to the gei binary when running in container
 const GEI_BINARY_PATH = '/app/.local/share/gh/extensions/gh-gei/gh-gei';
@@ -97,7 +99,7 @@ export async function fetchRepositories(hostConfig: HostConfig): Promise<Reposit
       hasNextPage = response.data.organization.repositories.pageInfo.hasNextPage;
       cursor = response.data.organization.repositories.pageInfo.endCursor;
     } catch (error) {
-      console.error(`[${new Date().toISOString()}] Error fetching repositories:`, error);
+      githubLog.error(`Error fetching repositories: ${error}`);
       throw error;
     }
   }
@@ -122,6 +124,22 @@ export async function runGh(args: string[], envExtra?: Record<string, string>): 
     });
 
     child.on('close', (code) => {
+      // Try to extract rate limit info from stderr if rate limited
+      const host = extractHostFromGhArgs(args);
+      const rateLimitInfo = parseRateLimitFromGhOutput(stderr, host);
+      if (rateLimitInfo && rateLimitInfo.remaining !== undefined) {
+        // We have partial rate limit info from error message
+        const info: RateLimitInfo = {
+          limit: rateLimitInfo.limit || 5000,  // Default GraphQL limit
+          remaining: rateLimitInfo.remaining,
+          used: rateLimitInfo.used || (5000 - rateLimitInfo.remaining),
+          resetAt: rateLimitInfo.resetAt || new Date(Date.now() + 3600000).toISOString(),
+          resource: rateLimitInfo.resource || 'graphql',
+          percentUsed: Math.round(((rateLimitInfo.used || (5000 - rateLimitInfo.remaining)) / 5000) * 100),
+          updatedAt: new Date().toISOString()
+        };
+        updateRateLimit(host, info);
+      }
       resolve({ stdout, stderr, code: code || 0 });
     });
 
@@ -130,6 +148,17 @@ export async function runGh(args: string[], envExtra?: Record<string, string>): 
       resolve({ stdout, stderr, code: 1 });
     });
   });
+}
+
+/**
+ * Extract the target host from gh CLI arguments
+ */
+function extractHostFromGhArgs(args: string[]): string {
+  const hostnameIdx = args.indexOf('--hostname');
+  if (hostnameIdx !== -1 && args[hostnameIdx + 1]) {
+    return args[hostnameIdx + 1];
+  }
+  return 'github.com';
 }
 
 export async function checkGhCli(): Promise<boolean> {
@@ -143,6 +172,7 @@ export async function checkGhCli(): Promise<boolean> {
 
 /**
  * Check if gei is available - either as direct binary or gh extension
+ * Uses 'gh extension list' instead of 'gh gei --help' to avoid slow version check
  */
 export async function checkGeiExtension(): Promise<boolean> {
   // First check if direct binary exists (container mode)
@@ -154,10 +184,10 @@ export async function checkGeiExtension(): Promise<boolean> {
       return false;
     }
   }
-  // Fallback to gh extension
+  // Check if gei extension is installed via 'gh extension list' (much faster than running 'gh gei --help')
   try {
-    const result = await runGh(['gei', '--help']);
-    return result.code === 0;
+    const result = await runGh(['extension', 'list']);
+    return result.code === 0 && result.stdout.includes('gh-gei');
   } catch {
     return false;
   }
@@ -315,7 +345,7 @@ export async function getMigrationStatus(
       ? 'https://api.github.com/graphql'
       : `https://${hostConfig.hostLabel}/api/graphql`;
 
-    const response = await fetch(apiUrl, {
+    const response = await fetchWithRateLimitTracking(apiUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${hostConfig.token}`,
@@ -364,7 +394,7 @@ export async function getMigrationLogUrl(
       ? 'https://api.github.com/graphql'
       : `https://${hostConfig.hostLabel}/api/graphql`;
 
-    const response = await fetch(apiUrl, {
+    const response = await fetchWithRateLimitTracking(apiUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${hostConfig.token}`,
@@ -393,7 +423,7 @@ export async function checkRepoExists(hostConfig: HostConfig, repoName: string):
       ? `https://api.github.com/repos/${hostConfig.org}/${repoName}`
       : `https://${hostConfig.hostLabel}/api/v3/repos/${hostConfig.org}/${repoName}`;
 
-    const response = await fetch(apiUrl, {
+    const response = await fetchWithRateLimitTracking(apiUrl, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${hostConfig.token}`,
@@ -539,7 +569,7 @@ export async function getRepoMetadata(hostConfig: HostConfig, repoName: string):
       archived: repo.isArchived || false
     };
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error fetching metadata for ${repoName}:`, error);
+    githubLog.error(`Error fetching metadata for ${repoName}: ${error}`);
     return null;
   }
 }
