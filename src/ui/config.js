@@ -767,12 +767,21 @@ async function validateSyncConfig() {
         const response = await fetch(`/api/syncs/${syncId}/validate`, { method: 'POST' });
         const result = await response.json();
         
-        sourceResult.innerHTML = `<div class="${result.sourceValid ? 'validation-success' : 'validation-error'}">
+        let sourceHtml = `<div class="${result.sourceValid ? 'validation-success' : 'validation-error'}">
             ${result.sourceValid ? '✓ Connected' : '✗ ' + (result.sourceError || 'Failed')}
         </div>`;
-        targetResult.innerHTML = `<div class="${result.targetValid ? 'validation-success' : 'validation-error'}">
+        if (result.sourceValid && result.sourceWarning) {
+            sourceHtml += `<div class="validation-warning">⚠️ ${result.sourceWarning}</div>`;
+        }
+        sourceResult.innerHTML = sourceHtml;
+        
+        let targetHtml = `<div class="${result.targetValid ? 'validation-success' : 'validation-error'}">
             ${result.targetValid ? '✓ Connected' : '✗ ' + (result.targetError || 'Failed')}
         </div>`;
+        if (result.targetValid && result.targetWarning) {
+            targetHtml += `<div class="validation-warning">⚠️ ${result.targetWarning}</div>`;
+        }
+        targetResult.innerHTML = targetHtml;
     } catch (error) {
         sourceResult.innerHTML = '';
         targetResult.innerHTML = '';

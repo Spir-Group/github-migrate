@@ -65,6 +65,8 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
   targetValid: boolean;
   sourceError?: string;
   targetError?: string;
+  sourceWarning?: string;
+  targetWarning?: string;
 }> {
   configLog.info(`Starting sync validation for "${syncConfig.source.org}" → "${syncConfig.target.org}"`);
   
@@ -72,7 +74,9 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
     sourceValid: false,
     targetValid: false,
     sourceError: undefined as string | undefined,
-    targetError: undefined as string | undefined
+    targetError: undefined as string | undefined,
+    sourceWarning: undefined as string | undefined,
+    targetWarning: undefined as string | undefined
   };
   
   // Test source access
@@ -81,8 +85,12 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
     const sourceResult = await testOrgAccess(syncConfig.source, 'source');
     result.sourceValid = sourceResult.valid;
     result.sourceError = sourceResult.error;
+    result.sourceWarning = sourceResult.warning;
     if (sourceResult.valid) {
       configLog.info(`SOURCE: ✓ All checks passed`);
+      if (sourceResult.warning) {
+        configLog.info(`SOURCE: ⚠ Warning: ${sourceResult.warning}`);
+      }
     } else {
       configLog.warn(`SOURCE: ✗ Failed - ${sourceResult.error}`);
     }
@@ -97,8 +105,12 @@ export async function validateSyncConfig(syncConfig: SyncRuntimeConfig): Promise
     const targetResult = await testOrgAccess(syncConfig.target, 'target');
     result.targetValid = targetResult.valid;
     result.targetError = targetResult.error;
+    result.targetWarning = targetResult.warning;
     if (targetResult.valid) {
       configLog.info(`TARGET: ✓ All checks passed`);
+      if (targetResult.warning) {
+        configLog.info(`TARGET: ⚠ Warning: ${targetResult.warning}`);
+      }
     } else {
       configLog.warn(`TARGET: ✗ Failed - ${targetResult.error}`);
     }
@@ -122,13 +134,19 @@ const SOURCE_REQUIRED_SCOPES = ['repo', 'admin:org', 'workflow', 'admin:repo_hoo
 const TARGET_REQUIRED_SCOPES = ['repo', 'admin:org', 'workflow', 'admin:repo_hook', 'delete_repo'];
 
 /**
+ * Optional scopes for Settings Sync feature
+ */
+const SETTINGS_OPTIONAL_SCOPES = ['read:enterprise', 'manage_billing:copilot'];
+
+/**
  * Test if we can access an organization with the given host config
  * This checks that the token is valid, has required scopes, AND has access to the org
  */
-async function testOrgAccess(hostConfig: HostConfig, type: 'source' | 'target'): Promise<{ valid: boolean; error?: string }> {
+async function testOrgAccess(hostConfig: HostConfig, type: 'source' | 'target'): Promise<{ valid: boolean; error?: string; warning?: string }> {
   const requiredScopes = type === 'source' ? SOURCE_REQUIRED_SCOPES : TARGET_REQUIRED_SCOPES;
   const label = type.toUpperCase();
   const log = (msg: string) => configLog.info(`${label}: ${msg}`);
+  let warning: string | undefined;
   
   // Step 1: Verify the token is valid and check scopes
   log(`Step 1/3: Validating token via /user endpoint...`);
@@ -179,6 +197,20 @@ async function testOrgAccess(hostConfig: HostConfig, type: 'source' | 'target'):
       return { valid: false, error: `Token missing required scopes: ${missingScopes.join(', ')}` };
     }
     log(`Step 1/3: ✓ All required scopes present`);
+    
+    // Check optional scopes for Settings Sync
+    const missingOptionalScopes: string[] = [];
+    for (const optional of SETTINGS_OPTIONAL_SCOPES) {
+      const hasScope = scopes.some(s => s === optional || s.startsWith(optional + ':') || optional.startsWith(s + ':'));
+      if (!hasScope && !scopes.includes(optional)) {
+        missingOptionalScopes.push(optional);
+      }
+    }
+    
+    if (missingOptionalScopes.length > 0) {
+      log(`Step 1/3: ⚠ Missing optional scopes for Settings Sync: ${missingOptionalScopes.join(', ')}`);
+      warning = `Settings Sync: missing optional scopes: ${missingOptionalScopes.join(', ')}`;
+    }
   } catch (error) {
     log(`Step 1/3: ✗ Exception: ${error}`);
     return { valid: false, error: `Token validation failed: ${error}` };
@@ -265,7 +297,7 @@ async function testOrgAccess(hostConfig: HostConfig, type: 'source' | 'target'):
     }
     log(`Step 3/3: ✓ Repository access confirmed`);
 
-    return { valid: true };
+    return { valid: true, warning };
   } catch (error) {
     log(`Step 2-3: ✗ Exception: ${error}`);
     return { valid: false, error: String(error) };

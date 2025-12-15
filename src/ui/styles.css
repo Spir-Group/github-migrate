@@ -873,6 +873,15 @@ button:disabled {
     font-size: 13px;
 }
 
+.validation-warning {
+    padding: 8px 12px;
+    background: #fff3cd;
+    color: #856404;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-top: 5px;
+}
+
 .validation-error {
     padding: 8px 12px;
     background: #f8d7da;

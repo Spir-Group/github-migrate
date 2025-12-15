@@ -37,6 +37,8 @@ import {
   LOG_BUFFER_SIZE
 } from './logger';
 import { getRateLimitSummary, getRateLimits } from './rate-limit';
+import { fetchSettingsComparison, applySettings } from './settings';
+import { ORG_SETTINGS_CATEGORIES, OrgSettings } from './settings-types';
 
 const argv = yargs(hideBin(process.argv))
   .option('port', {
@@ -243,6 +245,16 @@ function startServer() {
   router.get('/logs.js', (req, res) => {
     res.type('application/javascript');
     res.sendFile(path.join(uiDir, 'logs.js'));
+  });
+
+  // Settings Sync page
+  router.get('/settings', (req, res) => {
+    res.sendFile(path.join(uiDir, 'settings.html'));
+  });
+
+  router.get('/settings.js', (req, res) => {
+    res.type('application/javascript');
+    res.sendFile(path.join(uiDir, 'settings.js'));
   });
 
   // ==========================================
@@ -756,6 +768,115 @@ function startServer() {
       
       res.json({ success: true, message: 'Discovery started' });
     } catch (error) {
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // ==========================================
+  // Settings Sync API
+  // ==========================================
+
+  // Get settings categories metadata
+  router.get('/api/settings/categories', (req, res) => {
+    res.json(ORG_SETTINGS_CATEGORIES);
+  });
+
+  // Get settings comparison for a sync
+  router.get('/api/syncs/:id/settings', requireAdmin, async (req, res) => {
+    try {
+      const syncId = req.params.id;
+      const sync = state.getSyncConfig(syncId);
+      
+      if (!sync) {
+        return res.status(404).json({ error: 'Sync not found' });
+      }
+      
+      const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
+      if (!runtimeConfig) {
+        return res.status(400).json({ error: 'Could not get runtime config' });
+      }
+      
+      const comparison = await fetchSettingsComparison(
+        syncId,
+        sync.name,
+        runtimeConfig.source,
+        runtimeConfig.target,
+        sync.source.enterprise,
+        sync.target.enterprise
+      );
+      
+      res.json(comparison);
+    } catch (error) {
+      serverLog.error(`Error fetching settings: ${error}`);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Apply settings from source to target
+  router.post('/api/syncs/:id/settings/apply', requireAdmin, async (req, res) => {
+    try {
+      const syncId = req.params.id;
+      const { settings } = req.body as { settings: (keyof OrgSettings)[] };
+      
+      if (!settings || !Array.isArray(settings) || settings.length === 0) {
+        return res.status(400).json({ error: 'Settings array is required' });
+      }
+      
+      const sync = state.getSyncConfig(syncId);
+      if (!sync) {
+        return res.status(404).json({ error: 'Sync not found' });
+      }
+      
+      const runtimeConfig = await state.getSyncRuntimeConfig(syncId);
+      if (!runtimeConfig) {
+        return res.status(400).json({ error: 'Could not get runtime config' });
+      }
+      
+      serverLog.info(`Applying ${settings.length} settings from ${sync.source.org} to ${sync.target.org}`);
+      
+      const result = await applySettings(
+        runtimeConfig.source,
+        runtimeConfig.target,
+        settings
+      );
+      
+      if (result.success) {
+        serverLog.info(`Successfully applied settings to ${sync.target.org}`);
+      } else {
+        serverLog.warn(`Partially applied settings to ${sync.target.org}: ${result.failed.length} failed`);
+      }
+      
+      res.json(result);
+    } catch (error) {
+      serverLog.error(`Error applying settings: ${error}`);
+      res.status(500).json({ error: String(error) });
+    }
+  });
+
+  // Get settings for all syncs at once
+  router.get('/api/settings/all', requireAdmin, async (req, res) => {
+    try {
+      const syncs = state.getActiveSyncs();
+      const comparisons = [];
+      
+      for (const sync of syncs) {
+        const runtimeConfig = await state.getSyncRuntimeConfig(sync.id);
+        if (!runtimeConfig) continue;
+        
+        const comparison = await fetchSettingsComparison(
+          sync.id,
+          sync.name,
+          runtimeConfig.source,
+          runtimeConfig.target,
+          sync.source.enterprise,
+          sync.target.enterprise
+        );
+        comparisons.push(comparison);
+      }
+      
+      res.json(comparisons);
+    } catch (error) {
+      serverLog.error(`Error fetching all settings: ${error}`);
       res.status(500).json({ error: String(error) });
     }
   });

@@ -24,6 +24,7 @@
                     <nav class="main-nav" id="main-nav">
                         <a href="/" class="nav-link">Dashboard</a>
                         <a href="/config" class="nav-link active">Config</a>
+                        <a href="/settings" class="nav-link">Settings</a>
                         <a href="/logs" class="nav-link">Logs</a>
                     </nav>
                 </div>
@@ -253,6 +254,7 @@
                                 <label for="source-token">Personal Access Token *</label>
                                 <input type="password" id="source-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
                                 <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>. Must be SSO-authorized for the organization.</p>
+                                <p class="field-hint" style="margin-top: 5px;">For Settings Sync, also add: <code>read:enterprise</code>, <code>manage_billing:copilot</code></p>
                             </div>
                             <div id="source-validation-result" class="column-validation-result"></div>
                         </div>
@@ -274,6 +276,7 @@
                                 <label for="target-token">Personal Access Token *</label>
                                 <input type="password" id="target-token" required placeholder="ghp_..." autocomplete="off" data-1p-ignore>
                                 <p class="field-hint">Classic PAT required with scopes: <code>repo</code>, <code>admin:org</code>, <code>workflow</code>, <code>admin:repo_hook</code>, <code>delete_repo</code>. Must be SSO-authorized for the organization.</p>
+                                <p class="field-hint" style="margin-top: 5px;">For Settings Sync, also add: <code>read:enterprise</code>, <code>manage_billing:copilot</code></p>
                             </div>
                             <div id="target-validation-result" class="column-validation-result"></div>
                         </div>

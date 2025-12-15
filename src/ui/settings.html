@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings Sync - GitHub Migration Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><defs><linearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='%236B4C9A'/><stop offset='100%25' stop-color='%2300A19B'/></linearGradient></defs><circle cx='8' cy='8' r='7' fill='url(%23g)'/><path fill='%23fff' d='M8 1C4.1 1 1 4.1 1 8c0 3.1 2 5.7 4.8 6.6.4.1.5-.2.5-.4v-1.3c-2 .4-2.4-1-2.4-1-.3-.9-.8-1.1-.8-1.1-.7-.5 0-.5 0-.5.7.1 1.1.7 1.1.7.6 1.1 1.7.8 2.1.6.1-.5.3-.8.5-.9-1.6-.2-3.2-.8-3.2-3.5 0-.8.3-1.4.7-1.9-.1-.2-.3-.9.1-1.9 0 0 .6-.2 1.9.7.6-.2 1.2-.2 1.8-.2s1.2.1 1.8.2c1.3-.9 1.9-.7 1.9-.7.4 1 .2 1.7.1 1.9.5.5.7 1.1.7 1.9 0 2.7-1.6 3.3-3.2 3.5.2.2.5.6.5 1.3v1.9c0 .2.1.5.5.4C13 13.7 15 11.1 15 8c0-3.9-3.1-7-7-7z'/></svg>" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        .settings-container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        
+        .sync-selector {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .sync-selector select {
+            padding: 8px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 250px;
+        }
+        
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .settings-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .comparison-header {
+            display: grid;
+            grid-template-columns: 40px 250px 1fr 1fr 60px;
+            gap: 10px;
+            padding: 10px 15px;
+            background: var(--bg-tertiary);
+            border-radius: 4px 4px 0 0;
+            font-weight: 600;
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+        }
+        
+        .comparison-header .header-checkbox {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .org-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .org-label .org-name {
+            font-weight: 600;
+        }
+        
+        .org-label .org-host {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: normal;
+        }
+        
+        .settings-category {
+            margin-bottom: 20px;
+        }
+        
+        .category-header {
+            background: var(--bg-secondary);
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-bottom: none;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .category-header:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .category-title {
+            font-weight: 600;
+            font-size: 15px;
+        }
+        
+        .category-description {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        
+        .category-stats {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .category-content {
+            border: 1px solid var(--border-color);
+            border-top: none;
+        }
+        
+        .category-content.collapsed {
+            display: none;
+        }
+        
+        .setting-row {
+            display: grid;
+            grid-template-columns: 40px 250px 1fr 1fr 60px;
+            gap: 10px;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+        }
+        
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+        
+        .setting-row:hover {
+            background: var(--bg-secondary);
+        }
+        
+        .setting-row.different {
+            background: rgba(255, 193, 7, 0.1);
+        }
+        
+        .setting-row.different:hover {
+            background: rgba(255, 193, 7, 0.15);
+        }
+        
+        .setting-row.readonly {
+            opacity: 0.7;
+        }
+        
+        .setting-checkbox {
+            display: flex;
+            justify-content: center;
+        }
+        
+        .setting-checkbox input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .setting-checkbox input[type="checkbox"]:disabled {
+            cursor: not-allowed;
+        }
+        
+        .setting-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .setting-label .name {
+            font-weight: 500;
+        }
+        
+        .setting-label .description {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .setting-label .deprecated {
+            font-size: 11px;
+            color: #f0ad4e;
+            font-style: italic;
+        }
+        
+        .setting-value {
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-word;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .setting-value.source {
+            border-left: 3px solid var(--accent-color);
+        }
+        
+        .setting-value.target {
+            border-left: 3px solid #6f42c1;
+        }
+        
+        .setting-value.null {
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+        
+        .setting-value .boolean-true {
+            color: #28a745;
+        }
+        
+        .setting-value .boolean-false {
+            color: #dc3545;
+        }
+        
+        .setting-status {
+            display: flex;
+            justify-content: center;
+        }
+        
+        .status-badge {
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .status-badge.same {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-badge.different {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-badge.readonly {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        .summary-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-stats {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .summary-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .summary-stat .value {
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .summary-stat .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .extra-info {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .extra-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .extra-info-item {
+            background: var(--bg-tertiary);
+            padding: 12px;
+            border-radius: 4px;
+        }
+        
+        .extra-info-item .title {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+        }
+        
+        .extra-info-item .values {
+            display: flex;
+            gap: 20px;
+        }
+        
+        .extra-info-item .value-pair {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .extra-info-item .value-pair .org {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        
+        .extra-info-item .value-pair .val {
+            font-weight: 600;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .loading-overlay.hidden {
+            display: none;
+        }
+        
+        .loading-box {
+            background: var(--bg-primary);
+            padding: 30px 50px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .loading-spinner {
+            border: 4px solid var(--border-color);
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error-message {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .success-message {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .warning-message {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 1200px) {
+            .comparison-header,
+            .setting-row {
+                grid-template-columns: 40px 1fr;
+                gap: 5px;
+            }
+            
+            .comparison-header > *:nth-child(n+3),
+            .setting-row > *:nth-child(n+3) {
+                grid-column: 2;
+            }
+            
+            .setting-value {
+                margin-top: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div class="site-branding">
+                    <a href="/" class="site-title-link"><h1 class="site-title">GitHub Migration Dashboard</h1></a>
+                    <span class="site-subtitle"><a href="https://spirgroup.dev/docs/spir/component/github-migrate" target="_blank">a SpirGroup project</a></span>
+                </div>
+                <div class="header-right">
+                    <button class="hamburger" id="nav-toggle" onclick="toggleNav()">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                    <nav class="main-nav" id="main-nav">
+                        <a href="/" class="nav-link">Dashboard</a>
+                        <a href="/config" class="nav-link">Config</a>
+                        <a href="/settings" class="nav-link active">Settings</a>
+                        <a href="/logs" class="nav-link">Logs</a>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="settings-container">
+            <div class="page-header">
+                <h2>Organization Settings Sync</h2>
+                <p style="color: var(--text-secondary); margin-top: 5px;">
+                    Compare and synchronize settings between source and target organizations.
+                </p>
+            </div>
+
+            <div class="info-banner" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-left: 4px solid var(--accent-color); border-radius: 4px; padding: 15px; margin-bottom: 20px;">
+                <strong>⚠️ Limited Coverage</strong>
+                <p style="margin: 8px 0 0 0; color: var(--text-secondary); font-size: 13px;">
+                    This tool can only sync settings available via the GitHub API. Many enterprise and organization settings must be compared and configured manually:
+                </p>
+                <ul style="margin: 10px 0 0 0; padding-left: 20px; font-size: 13px; color: var(--text-secondary);">
+                    <li><strong>Enterprise Policies:</strong> <a href="https://github.com/enterprises/{enterprise}/settings/policies" target="_blank" style="color: var(--accent-color);">Policies</a> (repo policies, AI features, Actions, Codespaces, Copilot)</li>
+                    <li><strong>Member Privileges:</strong> <a href="https://github.com/organizations/{org}/settings/member_privileges" target="_blank" style="color: var(--accent-color);">Organization → Member privileges</a></li>
+                    <li><strong>Authentication:</strong> <a href="https://github.com/organizations/{org}/settings/security" target="_blank" style="color: var(--accent-color);">Organization → Authentication security</a> (2FA, SSO, IP allow list)</li>
+                    <li><strong>Code Security:</strong> <a href="https://github.com/organizations/{org}/settings/security_analysis" target="_blank" style="color: var(--accent-color);">Organization → Code security and analysis</a></li>
+                    <li><strong>Actions:</strong> <a href="https://github.com/organizations/{org}/settings/actions" target="_blank" style="color: var(--accent-color);">Organization → Actions → General</a> (permissions, runners, caches)</li>
+                    <li><strong>Secrets & Variables:</strong> <a href="https://github.com/organizations/{org}/settings/secrets/actions" target="_blank" style="color: var(--accent-color);">Organization → Secrets and variables</a></li>
+                </ul>
+                <p style="margin: 10px 0 0 0; font-size: 12px; color: var(--text-secondary);">
+                    Replace <code>{enterprise}</code> and <code>{org}</code> in the links above with your actual enterprise slug and organization name.
+                </p>
+            </div>
+
+            <div class="sync-selector">
+                <label for="sync-select" style="font-weight: 500;">Select Sync:</label>
+                <select id="sync-select" onchange="onSyncChange()">
+                    <option value="">-- Select a sync configuration --</option>
+                </select>
+                <button class="btn btn-primary" id="refresh-btn" onclick="refreshSettings()" disabled>
+                    🔄 Refresh
+                </button>
+            </div>
+
+            <div id="error-container"></div>
+            <div id="success-container"></div>
+
+            <div id="settings-content" style="display: none;">
+                <div class="summary-panel">
+                    <div class="summary-stats">
+                        <div class="summary-stat">
+                            <span class="value" id="stat-total">0</span>
+                            <span class="label">Total Settings</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="value" id="stat-same" style="color: #28a745;">0</span>
+                            <span class="label">Same</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="value" id="stat-different" style="color: #f0ad4e;">0</span>
+                            <span class="label">Different</span>
+                        </div>
+                        <div class="summary-stat">
+                            <span class="value" id="stat-selected" style="color: var(--accent-color);">0</span>
+                            <span class="label">Selected to Sync</span>
+                        </div>
+                    </div>
+                    
+                    <div class="extra-info" id="extra-info" style="display: none;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px;">Additional Resources</h4>
+                        <div class="extra-info-grid" id="extra-info-grid"></div>
+                    </div>
+                </div>
+
+                <div class="settings-header">
+                    <div>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="select-all-different" onchange="toggleSelectAllDifferent()">
+                            Select all different settings
+                        </label>
+                    </div>
+                    <div class="settings-actions">
+                        <button class="btn" onclick="clearSelection()">Clear Selection</button>
+                        <button class="btn btn-primary" id="apply-btn" onclick="applySettings()" disabled>
+                            Apply Selected Settings →
+                        </button>
+                    </div>
+                </div>
+
+                <div class="comparison-header">
+                    <div class="header-checkbox"></div>
+                    <div>Setting</div>
+                    <div class="org-label">
+                        <span class="org-name" id="source-org-header">Source</span>
+                        <span class="org-host" id="source-host-header"></span>
+                    </div>
+                    <div class="org-label">
+                        <span class="org-name" id="target-org-header">Target</span>
+                        <span class="org-host" id="target-host-header"></span>
+                    </div>
+                    <div style="text-align: center;">Status</div>
+                </div>
+
+                <div id="settings-list"></div>
+            </div>
+
+            <div id="empty-state" style="text-align: center; padding: 60px 20px; color: var(--text-secondary);">
+                <p style="font-size: 18px; margin-bottom: 10px;">Select a sync configuration to compare settings</p>
+                <p>Settings between source and target organizations will be displayed side by side.</p>
+            </div>
+        </main>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-box">
+            <div class="loading-spinner"></div>
+            <div id="loading-text">Loading settings...</div>
+        </div>
+    </div>
+
+    <script src="/settings.js"></script>
+</body>
+</html>

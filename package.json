@@ -12,7 +12,11 @@
     "docker:run": "docker run --rm -p 3000:3000 -v $(pwd)/data:/app/data github-migrate-test",
     "docker": "npm run docker:build && npm run docker:run"
   },
-  "keywords": ["github", "migration", "gei"],
+  "keywords": [
+    "github",
+    "migration",
+    "gei"
+  ],
   "author": "",
   "license": "ISC",
   "description": "GitHub Enterprise Importer migration dashboard",

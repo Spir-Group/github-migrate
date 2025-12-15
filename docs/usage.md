@@ -161,3 +161,51 @@ The first user to enable admin mode becomes the first administrator. Admins can 
 
 !!! note "Local Development"
     Set `LOCAL_DEV_USER=your@email.com` to simulate a logged-in user locally.
+
+## Settings Sync
+
+The **Settings** page allows you to compare and synchronize organization settings between source and target organizations.
+
+### Features
+
+- **Side-by-side comparison** of organization settings
+- **Enterprise Security Settings** comparison (GHAS, Dependabot, Secret Scanning)
+- **Copilot Settings** comparison (seat management, IDE/CLI settings)
+- **Selective sync** - choose which settings to apply
+- **Categorized view** - settings grouped by function
+
+### Required PAT Scopes
+
+For full Settings Sync functionality, add these optional scopes to your PATs:
+
+| Scope | Purpose |
+|-------|---------|
+| `read:enterprise` | Enterprise security settings comparison |
+| `manage_billing:copilot` | Copilot settings comparison |
+
+!!! warning "Classic PAT Required"
+    The `manage_billing:copilot` scope is only available on classic PATs, not fine-grained tokens.
+
+### Manual Configuration Required
+
+Many enterprise and organization settings are **not available via the GitHub API** and must be configured manually. The Settings page provides links to compare these settings:
+
+| Setting Type | Where to Configure |
+|--------------|-------------------|
+| Enterprise Policies | `github.com/enterprises/{enterprise}/settings/policies` |
+| Member Privileges | `github.com/organizations/{org}/settings/member_privileges` |
+| Authentication Security | `github.com/organizations/{org}/settings/security` |
+| Code Security & Analysis | `github.com/organizations/{org}/settings/security_analysis` |
+| Actions Settings | `github.com/organizations/{org}/settings/actions` |
+| Secrets & Variables | `github.com/organizations/{org}/settings/secrets/actions` |
+
+### Usage
+
+1. Navigate to the **Settings** page
+2. Select a sync configuration from the dropdown
+3. Review the comparison - different settings are highlighted in yellow
+4. Select settings to sync using checkboxes
+5. Click **Apply Selected Settings** to copy from source to target
+
+!!! tip "Validation Warnings"
+    If optional scopes are missing, you'll see warnings during PAT validation on the Config page. The migration will still work, but Settings Sync features will be limited.
