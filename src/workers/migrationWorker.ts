@@ -1,6 +1,6 @@
 import { SyncRuntimeConfig } from '../types';
 import * as state from '../state-index';
-import { runGei, extractMigrationId } from '../github';
+import { runGei, extractMigrationId, isRepoTrulySynced } from '../github';
 import { migrationLog } from '../logger';
 
 const MAX_CONCURRENT_QUEUED = 10;
@@ -97,7 +97,21 @@ export async function queueSingleRepoForSync(
     // Check for "already contains" error
     const combinedOutput = result.stdout + result.stderr;
     if (combinedOutput.includes('already contains a repository with the name')) {
-      migrationLog.info(`Target repo ${repo.name} already exists, deleting and retrying...`);
+      // Before deleting, check if the repo is actually in sync by comparing default branch commits
+      migrationLog.info(`Target repo ${repo.name} already exists, checking if truly out of sync...`);
+      
+      const trulySynced = await isRepoTrulySynced(config.source, config.target, repo.name);
+      
+      if (trulySynced) {
+        migrationLog.info(`${repo.name} is already in sync (same HEAD commit), marking as synced`);
+        await state.upsertRepo(repo.id, {
+          status: 'synced',
+          lastChecked: new Date().toISOString()
+        });
+        return;
+      }
+      
+      migrationLog.info(`${repo.name} is truly out of sync, deleting target and retrying...`);
       const deleteSuccess = await deleteTargetRepository(config, repo.name);
       if (deleteSuccess) {
         await queueSingleRepoForSync(config, repo);

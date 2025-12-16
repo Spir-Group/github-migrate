@@ -488,6 +488,76 @@ export async function needsMigration(sourceConfig: HostConfig, targetConfig: Hos
   return { needs: false, lastPushed: sourceLastUpdated };
 }
 
+/**
+ * Get the SHA of the default branch HEAD commit
+ */
+async function getDefaultBranchSha(hostConfig: HostConfig, repoName: string): Promise<string | null> {
+  try {
+    const query = `
+      query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          defaultBranchRef {
+            name
+            target {
+              oid
+            }
+          }
+        }
+      }
+    `;
+
+    const args = ['api', 'graphql'];
+    
+    if (hostConfig.hostLabel !== 'github.com') {
+      args.push('--hostname', hostConfig.hostLabel);
+    }
+    
+    args.push('-f', `query=${query}`, '-F', `owner=${hostConfig.org}`, '-F', `name=${repoName}`);
+
+    const result = await runGh(args, { GH_TOKEN: hostConfig.token });
+    
+    if (result.code !== 0) {
+      return null;
+    }
+
+    const response = JSON.parse(result.stdout);
+    return response?.data?.repository?.defaultBranchRef?.target?.oid || null;
+  } catch (error) {
+    githubLog.error(`Error fetching default branch SHA for ${repoName}: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * Check if source and target repos have the same default branch HEAD commit
+ * This is a more accurate check than comparing pushed_at timestamps
+ */
+export async function isRepoTrulySynced(sourceConfig: HostConfig, targetConfig: HostConfig, repoName: string): Promise<boolean> {
+  try {
+    const [sourceSha, targetSha] = await Promise.all([
+      getDefaultBranchSha(sourceConfig, repoName),
+      getDefaultBranchSha(targetConfig, repoName)
+    ]);
+
+    if (!sourceSha || !targetSha) {
+      // Can't determine, assume not synced
+      return false;
+    }
+
+    const isSynced = sourceSha === targetSha;
+    if (isSynced) {
+      githubLog.debug(`${repoName}: source and target have same HEAD (${sourceSha.substring(0, 7)})`);
+    } else {
+      githubLog.debug(`${repoName}: HEAD differs - source: ${sourceSha.substring(0, 7)}, target: ${targetSha.substring(0, 7)}`);
+    }
+    
+    return isSynced;
+  } catch (error) {
+    githubLog.error(`Error checking if ${repoName} is truly synced: ${error}`);
+    return false;
+  }
+}
+
 export interface RepoMetadata {
   description?: string;
   primaryLanguage?: string;
