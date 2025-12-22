@@ -562,6 +562,11 @@ function startServer() {
         if (!sourceSync) {
           return res.status(400).json({ error: 'Source sync for copying not found' });
         }
+        // Use getSyncRuntimeConfig to get tokens from Parameter Store (in production)
+        const runtimeConfig = await state.getSyncRuntimeConfig(copyFromSyncId);
+        if (!sourceToken && runtimeConfig) sourceToken = runtimeConfig.source.token;
+        if (!targetToken && runtimeConfig) targetToken = runtimeConfig.target.token;
+        // Fallback to sync config (for local file storage)
         if (!sourceToken) sourceToken = sourceSync.source.token;
         if (!targetToken) targetToken = sourceSync.target.token;
       }
